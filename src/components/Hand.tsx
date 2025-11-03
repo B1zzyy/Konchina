@@ -8,7 +8,7 @@ interface HandProps {
   cards: CardType[];
   isPlayer?: boolean;
   onCardClick?: (card: CardType) => void;
-  selectedCard: CardType | null;
+  selectedCard?: CardType | null;
   isTurn?: boolean;
 }
 
@@ -16,7 +16,7 @@ export default function Hand({
   cards,
   isPlayer = true,
   onCardClick,
-  selectedCard,
+  selectedCard = null,
   isTurn = false,
 }: HandProps) {
   return (

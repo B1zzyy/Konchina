@@ -412,6 +412,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           cards={opponent.hand}
           isPlayer={false}
           isTurn={gameState.currentPlayerId !== currentPlayerId}
+          selectedCard={null}
         />
       </div>
 
