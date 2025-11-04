@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/hooks/useAuth';
 import CoinIcon from '@/components/CoinIcon';
 
-export default function PaymentSuccess() {
+function PaymentSuccessContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { refreshUserProfile, userProfile } = useAuth();
@@ -114,6 +114,23 @@ export default function PaymentSuccess() {
         </p>
       </motion.div>
     </div>
+  );
+}
+
+export default function PaymentSuccess() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-green-900 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-white text-xl mb-4">Loading...</div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto"></div>
+          </div>
+        </div>
+      }
+    >
+      <PaymentSuccessContent />
+    </Suspense>
   );
 }
 
