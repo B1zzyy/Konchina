@@ -13,7 +13,7 @@ import RoundScorePopup from './RoundScorePopup';
 import GameEndPopup from './GameEndPopup';
 
 interface GameBoardProps {
-  onMakeMove: (playedCard: CardType, capturedCards: CardType[]) => void;
+  onMakeMove: (playedCard: CardType, capturedCards: CardType[], isTimeoutMove?: boolean) => void;
   onClearRoundScore?: () => void;
   isMyTurn: boolean;
 }
@@ -40,6 +40,13 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
   const [hasTwoClubs, setHasTwoClubs] = useState(false);
   const lastRoundScoreRef = useRef<RoundScoreResult | null>(null);
   const capturesAtRoundStart = useRef<{ player: number; opponent: number }>({ player: 0, opponent: 0 });
+  
+  // Turn timer state
+  const TURN_TIME_LIMIT = 15; // seconds
+  const [timeRemaining, setTimeRemaining] = useState(TURN_TIME_LIMIT);
+  const [isTimerActive, setIsTimerActive] = useState(false);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTurnRef = useRef<string | null>(null);
 
   const currentPlayer = gameState?.players[currentPlayerId || ''];
   const allPlayerIds = gameState ? Object.keys(gameState.players) : [];
@@ -85,6 +92,108 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
   // A player can ALWAYS play a card if they have one selected
   // The card will be placed on the table if no capture is possible
   const canPlay = !!selectedCard;
+
+  // Turn timer logic - start/stop timer based on turn
+  useEffect(() => {
+    // Check if it's a new turn
+    const currentTurnId = gameState?.currentPlayerId;
+    const isNewTurn = currentTurnId && currentTurnId !== lastTurnRef.current;
+    
+    if (isNewTurn) {
+      lastTurnRef.current = currentTurnId;
+      // Clear any existing timer
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    }
+    
+    // Start timer if it's my turn and timer isn't already active
+    if (isMyTurn && gameState && !isAnimating && gameState.gameStatus === 'active') {
+      if (!isTimerActive || isNewTurn) {
+        setIsTimerActive(true);
+        setTimeRemaining(TURN_TIME_LIMIT);
+      }
+    } else {
+      // Stop timer if it's not my turn, animating, or game is not active
+      if (isTimerActive) {
+        setIsTimerActive(false);
+        setTimeRemaining(TURN_TIME_LIMIT);
+        // Clear interval immediately
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
+        }
+      }
+    }
+
+    // Cleanup on unmount
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [isMyTurn, gameState?.currentPlayerId, gameState?.gameStatus, isAnimating, isTimerActive]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!isTimerActive || !isMyTurn || !gameState || isAnimating) {
+      return;
+    }
+
+    timerIntervalRef.current = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 1) {
+          // Time's up! Auto-play a random card
+          if (currentPlayer && currentPlayer.hand.length > 0 && isMyTurn) {
+            const randomCard = currentPlayer.hand[Math.floor(Math.random() * currentPlayer.hand.length)];
+            
+            // Try to find a valid capture first
+            let capturedCards: CardType[] = [];
+            
+            // Check if Jack can capture all
+            if (randomCard.value === 'J' && gameState.tableCards.length > 0) {
+              capturedCards = gameState.tableCards;
+            } else if (gameState.tableCards.length > 0) {
+              // Try to find any valid capture
+              const combinations = getCapturableCombinations(randomCard, gameState.tableCards);
+              if (combinations.length > 0) {
+                // Use a random valid combination (for variety)
+                const randomCombination = combinations[Math.floor(Math.random() * combinations.length)];
+                capturedCards = randomCombination;
+              }
+            }
+            
+            // Auto-play the card
+            console.log('[GameBoard] Auto-playing card due to timeout:', `${randomCard.value}${randomCard.suit}`, 'with', capturedCards.length, 'captured cards');
+            onMakeMove(randomCard, capturedCards, true); // Pass true to indicate this is a timeout move
+            resetSelections();
+          }
+          
+          setIsTimerActive(false);
+          return TURN_TIME_LIMIT;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+    };
+  }, [isTimerActive, isMyTurn, gameState, currentPlayer, isAnimating, onMakeMove, resetSelections]);
+
+  // Reset timer when a move is made
+  useEffect(() => {
+    if (gameState?.lastMove && gameState.lastMove.playerId === currentPlayerId) {
+      // Move was made by current player - reset timer
+      setIsTimerActive(false);
+      setTimeRemaining(TURN_TIME_LIMIT);
+    }
+  }, [gameState?.lastMove, currentPlayerId]);
   
   // Debug logging - check turn status
   useEffect(() => {
@@ -510,6 +619,38 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           selectedCard={selectedCard}
           isTurn={isMyTurn}
         />
+        
+        {/* Turn Timer Progress Bar - Only show when it's my turn, positioned below hand */}
+        {isMyTurn && isTimerActive && (
+          <div className="w-full max-w-[200px] px-4 mt-6">
+            <motion.div 
+              className="relative h-1.5 bg-gray-700/50 rounded-full overflow-hidden"
+              animate={{
+                scale: timeRemaining <= TURN_TIME_LIMIT * 0.25 ? [1, 1.15, 1] : 1
+              }}
+              transition={{
+                scale: timeRemaining <= TURN_TIME_LIMIT * 0.25 
+                  ? { duration: 0.5, repeat: Infinity, ease: 'easeInOut' }
+                  : { duration: 0.2 }
+              }}
+            >
+              <motion.div
+                className="absolute top-0 left-0 h-full rounded-full transition-colors duration-300"
+                style={{
+                  width: `${(timeRemaining / TURN_TIME_LIMIT) * 100}%`,
+                  backgroundColor: timeRemaining > TURN_TIME_LIMIT * 0.5 
+                    ? '#22c55e' // Green
+                    : timeRemaining > TURN_TIME_LIMIT * 0.25
+                    ? '#eab308' // Yellow
+                    : '#ef4444' // Red
+                }}
+                initial={{ width: '100%' }}
+                animate={{ width: `${(timeRemaining / TURN_TIME_LIMIT) * 100}%` }}
+                transition={{ duration: 1, ease: 'linear' }}
+              />
+            </motion.div>
+          </div>
+        )}
 
       </div>
 
@@ -546,6 +687,27 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
             setShowGameEnd(false);
           }}
         />
+      )}
+
+      {/* AFK Warning Message - Bottom Left */}
+      {isMyTurn && gameState?.consecutiveTimeouts && gameState.consecutiveTimeouts[currentPlayerId || ''] && gameState.consecutiveTimeouts[currentPlayerId || ''] >= 3 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="absolute bottom-4 left-4 bg-red-500/20 border border-red-500/40 rounded-xl px-4 py-3 backdrop-blur-sm"
+        >
+          <div className="flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+            <p className="text-red-200 text-sm font-medium">
+              {gameState.consecutiveTimeouts[currentPlayerId || ''] === 4 
+                ? 'Final warning: You will be kicked out if you don\'t make a move this turn.'
+                : 'You will be kicked out for inactivity shortly if you don\'t make a move.'}
+            </p>
+          </div>
+        </motion.div>
       )}
     </div>
   );

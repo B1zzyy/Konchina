@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { RoundScoreResult } from '@/lib/types';
 import { useGameStore } from '@/store/gameStore';
 
@@ -15,6 +15,7 @@ export default function RoundScorePopup({
   onClose,
 }: RoundScorePopupProps) {
   const { currentPlayerId, gameState } = useGameStore();
+  const [countdown, setCountdown] = useState(7);
 
   // Auto-close after 7 seconds
   useEffect(() => {
@@ -24,6 +25,21 @@ export default function RoundScorePopup({
 
     return () => clearTimeout(timer);
   }, [onClose]);
+
+  // Countdown timer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   const isPlayer1 = currentPlayerId === roundScore.player1Id;
   const myRoundScore = isPlayer1 ? roundScore.player1Points : roundScore.player2Points;
@@ -73,8 +89,13 @@ export default function RoundScorePopup({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
           transition={{ duration: 0.2 }}
-          className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-md w-full mx-4"
+          className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-md w-full mx-4 relative"
         >
+          {/* Countdown Timer - Top Right */}
+          <div className="absolute top-4 right-4 text-gray-500/70 text-xs font-medium">
+            {countdown}
+          </div>
+
           {/* Header */}
           <div className="text-center mb-6">
             <div className="text-5xl mb-2">🎴</div>

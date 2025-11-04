@@ -207,7 +207,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
   }, [roomId, setGameState, db]);
 
   // Make a move
-  const makeMove = async (playedCard: Card, capturedCards: Card[]) => {
+  const makeMove = async (playedCard: Card, capturedCards: Card[], isTimeoutMove: boolean = false) => {
     if (!roomId || !currentPlayerId) return;
 
     try {
@@ -229,6 +229,52 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
       if (!currentPlayer || !opponentId) {
         setError('Player not found in game');
         return;
+      }
+
+      // Handle AFK detection: track consecutive timeouts
+      const consecutiveTimeouts = gameState.consecutiveTimeouts || {};
+      let updatedConsecutiveTimeouts = { ...consecutiveTimeouts };
+
+      if (isTimeoutMove) {
+        // Increment timeout count for this player
+        updatedConsecutiveTimeouts[currentPlayerId] = (updatedConsecutiveTimeouts[currentPlayerId] || 0) + 1;
+        console.log(`[AFK] Player ${currentPlayerId} timed out. Consecutive timeouts: ${updatedConsecutiveTimeouts[currentPlayerId]}`);
+
+        // Check if player has timed out 5 times in a row - forfeit them
+        if (updatedConsecutiveTimeouts[currentPlayerId] >= 5) {
+          console.log(`[AFK] Player ${currentPlayerId} has timed out 5 times. Forfeiting game.`);
+          
+          // Forfeit the player - opponent wins
+          const updatedPlayers = {
+            ...gameState.players,
+            [opponentId]: {
+              ...gameState.players[opponentId],
+              score: 16,
+            },
+          };
+
+          const forfeitGameState: GameState = {
+            ...gameState,
+            gameStatus: 'finished',
+            players: updatedPlayers,
+            currentPlayerId: opponentId,
+            forfeitedBy: currentPlayerId,
+            consecutiveTimeouts: updatedConsecutiveTimeouts,
+          };
+
+          await setDoc(roomRef, {
+            ...roomData,
+            gameState: forfeitGameState,
+          });
+
+          return; // Exit early - game is forfeited
+        }
+      } else {
+        // Normal move - reset timeout count for this player
+        if (updatedConsecutiveTimeouts[currentPlayerId]) {
+          delete updatedConsecutiveTimeouts[currentPlayerId];
+          console.log(`[AFK] Player ${currentPlayerId} made a normal move. Resetting timeout count.`);
+        }
       }
 
       // Update player hand (remove played card)
@@ -453,6 +499,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
         lastRoundScore: roundScoreResult || null,
         lastCapturePlayerId: lastCapturePlayerId || null, // Track last capturer (null if no captures yet)
         currentHand: gameState.currentHand || 1, // Preserve current hand number (incremented during mid-round deals, reset to 1 for new rounds)
+        consecutiveTimeouts: updatedConsecutiveTimeouts, // Track consecutive timeouts for AFK detection
       };
 
       await setDoc(roomRef, {

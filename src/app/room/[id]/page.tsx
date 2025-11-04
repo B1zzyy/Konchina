@@ -347,9 +347,9 @@ export default function RoomPage() {
     return null; // useEffect will redirect
   }
 
-  const handleMakeMove = (playedCard: Card, capturedCards: Card[]) => {
+  const handleMakeMove = (playedCard: Card, capturedCards: Card[], isTimeoutMove: boolean = false) => {
     if (!effectivePlayerId) return;
-    makeMove(playedCard, capturedCards);
+    makeMove(playedCard, capturedCards, isTimeoutMove);
   };
 
   const handleForfeit = async () => {

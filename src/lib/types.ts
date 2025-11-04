@@ -50,6 +50,7 @@ export interface GameState {
   lastCapturePlayerId?: string | null; // Track who made the last capture in the round
   forfeitedBy?: string | null; // Track which player forfeited (their player ID)
   currentHand?: number; // Track which hand number we're on (1-6)
+  consecutiveTimeouts?: { [playerId: string]: number }; // Track consecutive timeouts per player for AFK detection
 }
 
 export interface Move {
