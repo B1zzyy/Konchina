@@ -22,7 +22,12 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [showConfirmPasswordField, setShowConfirmPasswordField] = useState(false);
   const [showSuccessPopup, setShowSuccessPopup] = useState(false);
   const [signedUpEmail, setSignedUpEmail] = useState('');
-  const { signUp, login } = useAuth();
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
+  const [forgotPasswordLoading, setForgotPasswordLoading] = useState(false);
+  const [forgotPasswordError, setForgotPasswordError] = useState('');
+  const [forgotPasswordSuccess, setForgotPasswordSuccess] = useState(false);
+  const { signUp, login, resetPassword } = useAuth();
   
   // Show confirm password field when user starts typing password and it's signup mode
   const showConfirmPassword = isSignUp && password.length > 0;
@@ -264,6 +269,22 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           </motion.div>
         )}
 
+        {/* Forgot Password Link - Only show on login */}
+        {!isSignUp && (
+          <div className="text-right -mt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setShowForgotPassword(true);
+                setError('');
+              }}
+              className="text-green-200 hover:text-green-100 text-sm underline"
+            >
+              Forgot password?
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm">
             {error}
@@ -314,6 +335,118 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             setShowSuccessPopup(false);
           }}
         />
+      )}
+
+      {/* Forgot Password Modal */}
+      {showForgotPassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-black bg-opacity-90 rounded-2xl p-8 max-w-md w-full shadow-2xl border border-gray-700/50"
+          >
+            {forgotPasswordSuccess ? (
+              <div className="text-center">
+                <div className="text-6xl mb-4">✉️</div>
+                <h2 className="text-2xl font-bold text-white mb-4">Check Your Email</h2>
+                <p className="text-gray-300 mb-6">
+                  We've sent a password reset link to <span className="font-semibold text-white">{forgotPasswordEmail}</span>
+                </p>
+                <p className="text-gray-400 text-sm mb-6">
+                  Click the link in the email to reset your password. The link will expire in 1 hour.
+                </p>
+                <button
+                  onClick={() => {
+                    setShowForgotPassword(false);
+                    setForgotPasswordEmail('');
+                    setForgotPasswordSuccess(false);
+                    setForgotPasswordError('');
+                  }}
+                  className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 px-4 rounded-lg transition-colors"
+                >
+                  Got it
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="text-center mb-6">
+                  <h2 className="text-2xl font-bold text-white mb-2">Reset Password</h2>
+                  <p className="text-gray-400 text-sm">
+                    Enter your email address and we'll send you a link to reset your password.
+                  </p>
+                </div>
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    setForgotPasswordError('');
+                    setForgotPasswordLoading(true);
+
+                    if (!forgotPasswordEmail.trim()) {
+                      setForgotPasswordError('Please enter your email address');
+                      setForgotPasswordLoading(false);
+                      return;
+                    }
+
+                    const result = await resetPassword(forgotPasswordEmail);
+                    if (result.success) {
+                      setForgotPasswordSuccess(true);
+                    } else {
+                      setForgotPasswordError(result.error || 'Failed to send password reset email');
+                    }
+
+                    setForgotPasswordLoading(false);
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-white text-sm font-medium mb-2">
+                      Email
+                    </label>
+                    <input
+                      type="email"
+                      value={forgotPasswordEmail}
+                      onChange={(e) => setForgotPasswordEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      required
+                      className="w-full px-4 py-3 rounded-lg bg-white bg-opacity-10 border border-white border-opacity-20 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                      disabled={forgotPasswordLoading}
+                    />
+                  </div>
+
+                  {forgotPasswordError && (
+                    <div className="bg-red-500/20 border border-red-500 text-red-200 px-4 py-3 rounded-lg text-sm">
+                      {forgotPasswordError}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowForgotPassword(false);
+                        setForgotPasswordEmail('');
+                        setForgotPasswordError('');
+                      }}
+                      disabled={forgotPasswordLoading}
+                      className="flex-1 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={forgotPasswordLoading}
+                      className="flex-1 bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-500 disabled:cursor-not-allowed text-black font-bold py-3 px-4 rounded-lg transition-colors"
+                    >
+                      {forgotPasswordLoading ? 'Sending...' : 'Send Reset Link'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </motion.div>
+        </div>
       )}
     </motion.div>
   );

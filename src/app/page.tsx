@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth, UserProfile } from '@/hooks/useAuth';
 import { useMatchmaking } from '@/hooks/useMatchmaking';
+import { usePayment } from '@/hooks/usePayment';
 import AuthForm from '@/components/AuthForm';
+import CoinIcon from '@/components/CoinIcon';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, runTransaction } from 'firebase/firestore';
 
@@ -14,6 +16,8 @@ export default function Home() {
   const router = useRouter();
   const { user, userProfile, loading, logout, refreshUserProfile } = useAuth();
   const { isInQueue, isMatchmaking, isMatched, matchedRoomId, joinQueue, leaveQueue } = useMatchmaking();
+  const { handlePurchase } = usePayment();
+  const [loadingPackage, setLoadingPackage] = useState<string | null>(null);
   const [showAuth, setShowAuth] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [showRoomModal, setShowRoomModal] = useState(false);
@@ -26,6 +30,9 @@ export default function Home() {
   const [coinAnimation, setCoinAnimation] = useState<{ amount: number; type: 'deduct' | 'win' | 'loss' } | null>(null);
   const [displayedCoins, setDisplayedCoins] = useState<number | null>(null);
   const prevCoinsRef = useRef<number | null>(null);
+  const [flyingCoins, setFlyingCoins] = useState<number[]>([]);
+  const coinBalanceRef = useRef<HTMLDivElement | null>(null);
+  const [showBuyCoinsModal, setShowBuyCoinsModal] = useState(false);
 
   useEffect(() => {
     // Show auth form if user is not authenticated
@@ -127,6 +134,15 @@ export default function Home() {
           console.log('[Coins] 🎉 WIN! Animating +1000 coins (counting UP from', oldCoins, 'to', newCoins, ')');
           setCoinAnimation({ amount: 1000, type: 'win' });
           animateCoinCountdown(oldCoins, newCoins);
+          
+          // Trigger flying coins animation (wave effect)
+          const coinIds = Array.from({ length: 45 }, (_, i) => i);
+          setFlyingCoins(coinIds);
+          
+          // Clear flying coins after animation completes
+          setTimeout(() => {
+            setFlyingCoins([]);
+          }, 2500);
           
           setTimeout(() => {
             setCoinAnimation(null);
@@ -631,11 +647,18 @@ export default function Home() {
                   </AnimatePresence>
                 </div>
 
-                {/* Coins Section - Right side */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  <span className="text-yellow-400 font-bold text-xl flex items-center gap-1">
-                    💰 {displayedCoins !== null ? displayedCoins.toLocaleString() : userProfile.coins.toLocaleString()}
-                  </span>
+                {/* Coins Section - Right side (clickable) */}
+                <div 
+                  ref={coinBalanceRef}
+                  className="flex items-center gap-1 flex-shrink-0"
+                >
+                  <button
+                    onClick={() => setShowBuyCoinsModal(true)}
+                    className="text-yellow-400 font-bold text-xl flex items-center gap-1 hover:text-yellow-300 transition-colors cursor-pointer"
+                  >
+                    <CoinIcon className="text-yellow-400" size={20} />
+                    {displayedCoins !== null ? displayedCoins.toLocaleString() : userProfile.coins.toLocaleString()}
+                  </button>
                 </div>
               </div>
               {user && !user.emailVerified && (
@@ -747,8 +770,8 @@ export default function Home() {
                 <div className="flex flex-col items-center gap-3">
                   <div className="text-gray-300 text-sm font-medium uppercase tracking-wider">Award</div>
                   <div className="flex items-baseline gap-2">
+                    <CoinIcon className="text-yellow-400" size={32} />
                     <span className="text-yellow-400 font-bold text-5xl">1,000</span>
-                    <span className="text-yellow-400 text-2xl">💰</span>
                   </div>
                 </div>
 
@@ -756,8 +779,8 @@ export default function Home() {
                 <div className="flex flex-col items-center gap-3">
                   <div className="text-gray-400 text-xs font-medium uppercase tracking-wider">Entry Fee</div>
                   <div className="flex items-baseline gap-2">
+                    <CoinIcon className="text-red-400" size={24} />
                     <span className="text-red-400 font-bold text-3xl">500</span>
-                    <span className="text-red-400 text-xl">💰</span>
                   </div>
                 </div>
               </div>
@@ -1178,6 +1201,247 @@ export default function Home() {
                   Share the room code with a friend to play together!
                 </p>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Flying Coins Animation - Only for winners */}
+      {flyingCoins.length > 0 && coinBalanceRef.current && (
+        <div className="fixed inset-0 pointer-events-none z-50">
+          {flyingCoins.map((coinId, index) => {
+            const balanceRect = coinBalanceRef.current?.getBoundingClientRect();
+            if (!balanceRect) return null;
+            
+            // Stagger the coins for wave effect (faster stagger for more coins)
+            const delay = index * 0.03;
+            // Start from top right corner with slight randomization
+            const startX = window.innerWidth + 50;
+            const startY = 50 + (Math.random() * 150); // Top right area (50-200px from top)
+            const endX = balanceRect.left + balanceRect.width / 2;
+            const endY = balanceRect.top + balanceRect.height / 2;
+            
+            return (
+              <motion.div
+                key={coinId}
+                className="absolute"
+                initial={{
+                  x: startX,
+                  y: startY,
+                  opacity: 1,
+                  scale: 0.8,
+                  rotate: 0,
+                }}
+                animate={{
+                  x: endX,
+                  y: endY,
+                  opacity: [1, 1, 1, 0.8, 0],
+                  scale: [0.8, 1.1, 1, 0.6, 0.2],
+                  rotate: [0, 180, 360, 540],
+                }}
+                transition={{
+                  duration: 1.2,
+                  delay: delay,
+                  ease: [0.25, 0.46, 0.45, 0.94], // Smooth ease out
+                }}
+              >
+                <CoinIcon className="text-yellow-400" size={32} />
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Buy Coins Modal */}
+      <AnimatePresence>
+        {showBuyCoinsModal && (
+          <div 
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowBuyCoinsModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ duration: 0.3 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-3xl font-bold text-white">Buy Coins</h2>
+                <button
+                  onClick={() => setShowBuyCoinsModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {/* Coin Package 1 - 20,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">20,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('20000', setLoadingPackage)}
+                    disabled={loadingPackage === '20000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '20000' ? 'Loading...' : '€3.00'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 3 - 38,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">38,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('38000', setLoadingPackage)}
+                    disabled={loadingPackage === '38000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '38000' ? 'Loading...' : '€5.50'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 4 - 90,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">90,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('90000', setLoadingPackage)}
+                    disabled={loadingPackage === '90000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '90000' ? 'Loading...' : '€10.50'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 5 - 175,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">175,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('175000', setLoadingPackage)}
+                    disabled={loadingPackage === '175000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '175000' ? 'Loading...' : '€20.50'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 6 - 240,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">240,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('240000', setLoadingPackage)}
+                    disabled={loadingPackage === '240000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '240000' ? 'Loading...' : '€25.50'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 7 - 680,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-yellow-500/20 to-yellow-600/20 border-2 border-yellow-500/50 rounded-xl p-4 flex items-center justify-between hover:border-yellow-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">680,000</div>
+                      <div className="text-xs text-gray-400">Coins • Best Value</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('680000', setLoadingPackage)}
+                    disabled={loadingPackage === '680000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '680000' ? 'Loading...' : '€60.00'}
+                  </motion.button>
+                </motion.div>
+
+                {/* Coin Package 8 - 1,400,000 coins */}
+                <motion.div
+                  whileHover={{ scale: 1.01, x: 4 }}
+                  className="bg-gradient-to-r from-gray-800/50 to-gray-700/50 border border-gray-600/50 rounded-xl p-4 flex items-center justify-between hover:border-gray-500 transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <CoinIcon className="text-yellow-400" size={28} />
+                    <div>
+                      <div className="text-xl font-bold text-white">1,400,000</div>
+                      <div className="text-xs text-gray-400">Coins</div>
+                    </div>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handlePurchase('1400000', setLoadingPackage)}
+                    disabled={loadingPackage === '1400000'}
+                    className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-2.5 rounded-lg transition-colors"
+                  >
+                    {loadingPackage === '1400000' ? 'Loading...' : '€110.00'}
+                  </motion.button>
+                </motion.div>
+              </div>
+
             </motion.div>
           </div>
         )}

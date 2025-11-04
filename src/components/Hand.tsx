@@ -98,11 +98,6 @@ export default function Hand({
           );
         })}
       </div>
-      {!isPlayer && (
-        <div className="text-gray-400 text-sm">
-          {cards.length} {cards.length === 1 ? 'card' : 'cards'}
-        </div>
-      )}
     </div>
   );
 }

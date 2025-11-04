@@ -62,6 +62,47 @@ export function useAuth() {
     return () => unsubscribe();
   }, []);
 
+  // Helper function to convert Firebase errors to user-friendly messages
+  const getAuthErrorMessage = (error: any): string => {
+    const errorCode = error?.code || '';
+    
+    // Login errors
+    if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/wrong-password') {
+      return 'Incorrect email or password. Please try again.';
+    }
+    if (errorCode === 'auth/user-not-found') {
+      return 'No account found with this email address.';
+    }
+    if (errorCode === 'auth/user-disabled') {
+      return 'This account has been disabled. Please contact support.';
+    }
+    if (errorCode === 'auth/too-many-requests') {
+      return 'Too many failed attempts. Please try again later.';
+    }
+    if (errorCode === 'auth/invalid-email') {
+      return 'Invalid email address. Please check and try again.';
+    }
+    
+    // Signup errors
+    if (errorCode === 'auth/email-already-in-use') {
+      return 'This email is already registered. Please sign in instead.';
+    }
+    if (errorCode === 'auth/weak-password') {
+      return 'Password is too weak. Please use a stronger password.';
+    }
+    if (errorCode === 'auth/operation-not-allowed') {
+      return 'Email/password accounts are not enabled. Please contact support.';
+    }
+    
+    // Network errors
+    if (errorCode === 'auth/network-request-failed') {
+      return 'Network error. Please check your connection and try again.';
+    }
+    
+    // Default fallback
+    return error?.message || 'An error occurred. Please try again.';
+  };
+
   const signUp = async (email: string, password: string, displayName?: string) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -93,7 +134,7 @@ export function useAuth() {
       console.error('Sign up error:', error);
       return { 
         success: false, 
-        error: error.message || 'Failed to sign up' 
+        error: getAuthErrorMessage(error)
       };
     }
   };
@@ -106,7 +147,7 @@ export function useAuth() {
       console.error('Login error:', error);
       return { 
         success: false, 
-        error: error.message || 'Failed to log in' 
+        error: getAuthErrorMessage(error)
       };
     }
   };
@@ -149,7 +190,7 @@ export function useAuth() {
       console.error('Password reset error:', error);
       return { 
         success: false, 
-        error: error.message || 'Failed to send password reset email' 
+        error: getAuthErrorMessage(error)
       };
     }
   };
