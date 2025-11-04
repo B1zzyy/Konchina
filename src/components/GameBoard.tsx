@@ -555,9 +555,9 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-b from-green-900 to-green-700 p-4">
+    <div className="flex flex-col h-screen bg-gradient-to-b from-green-900 to-green-700 p-2 sm:p-3 md:p-4 overflow-hidden">
       {/* Opponent Hand (Top) */}
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-shrink-0 min-h-0 flex items-center justify-center py-1 sm:py-2">
         <Hand
           cards={opponent.hand}
           isPlayer={false}
@@ -567,7 +567,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
       </div>
 
       {/* Table (Middle) with Special Cards Tracker */}
-      <div className="flex-1 flex items-center justify-center my-4">
+      <div className="flex-1 min-h-0 flex items-center justify-center py-1 sm:py-2">
         <div className="relative inline-flex items-center">
           <Table
             cards={gameState.tableCards}
@@ -578,14 +578,14 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           />
           
           {/* Subtle Special Cards Tracker - Right side of table */}
-          <div className="absolute left-full ml-2 sm:ml-3 md:ml-4 top-1/2 transform -translate-y-1/2 flex flex-col gap-3 sm:gap-4">
+          <div className="absolute left-full ml-1 sm:ml-2 md:ml-3 lg:ml-4 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 sm:gap-3 md:gap-4">
             {/* 10♦ Tracker */}
-            <div className={`flex items-center gap-2 sm:gap-2.5 text-base sm:text-lg md:text-xl transition-all duration-300 ${
+            <div className={`flex items-center gap-1.5 sm:gap-2 md:gap-2.5 text-sm sm:text-base md:text-lg lg:text-xl transition-all duration-300 ${
               hasTenDiamonds 
                 ? 'text-gray-500/60' 
                 : 'text-green-400/70'
             }`}>
-              <div className={`w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full transition-all duration-300 ${
+              <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 rounded-full transition-all duration-300 ${
                 hasTenDiamonds 
                   ? 'bg-gray-500/40 border border-gray-600/40' 
                   : 'bg-green-500/80 shadow-sm shadow-green-500/50'
@@ -594,12 +594,12 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
             </div>
             
             {/* 2♣ Tracker */}
-            <div className={`flex items-center gap-2 sm:gap-2.5 text-base sm:text-lg md:text-xl transition-all duration-300 ${
+            <div className={`flex items-center gap-1.5 sm:gap-2 md:gap-2.5 text-sm sm:text-base md:text-lg lg:text-xl transition-all duration-300 ${
               hasTwoClubs 
                 ? 'text-gray-500/60' 
                 : 'text-green-400/70'
             }`}>
-              <div className={`w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full transition-all duration-300 ${
+              <div className={`w-2.5 h-2.5 sm:w-3 sm:h-3 md:w-3.5 md:h-3.5 rounded-full transition-all duration-300 ${
                 hasTwoClubs 
                   ? 'bg-gray-500/40 border border-gray-600/40' 
                   : 'bg-green-500/80 shadow-sm shadow-green-500/50'
@@ -611,7 +611,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
       </div>
 
       {/* Player Hand (Bottom) */}
-      <div className="flex-1 flex items-center justify-center flex-col gap-4">
+      <div className="flex-shrink-0 min-h-0 flex items-center justify-center flex-col gap-2 sm:gap-3 md:gap-4 pb-2 sm:pb-3">
         <Hand
           cards={currentPlayer.hand}
           isPlayer={true}
@@ -620,9 +620,9 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           isTurn={isMyTurn}
         />
         
-        {/* Turn Timer Progress Bar - Only show when it's my turn, positioned below hand */}
-        {isMyTurn && isTimerActive && (
-          <div className="w-full max-w-[200px] px-4 mt-6">
+        {/* Turn Timer Progress Bar - Always reserve space, show only when it's my turn */}
+        <div className="w-full max-w-[180px] sm:max-w-[200px] px-2 sm:px-4 mt-2 sm:mt-4 md:mt-6" style={{ minHeight: isMyTurn && isTimerActive ? 'auto' : '6px' }}>
+          {isMyTurn && isTimerActive ? (
             <motion.div 
               className="relative h-1.5 bg-gray-700/50 rounded-full overflow-hidden"
               animate={{
@@ -649,8 +649,11 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
                 transition={{ duration: 1, ease: 'linear' }}
               />
             </motion.div>
-          </div>
-        )}
+          ) : (
+            // Invisible placeholder to maintain space
+            <div className="h-1.5" />
+          )}
+        </div>
 
       </div>
 
@@ -695,13 +698,13 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
-          className="absolute bottom-4 left-4 bg-red-500/20 border border-red-500/40 rounded-xl px-4 py-3 backdrop-blur-sm"
+          className="absolute bottom-2 sm:bottom-3 md:bottom-4 left-2 sm:left-3 md:left-4 bg-red-500/20 border border-red-500/40 rounded-lg sm:rounded-xl px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 backdrop-blur-sm max-w-[calc(100vw-1rem)] sm:max-w-md z-40"
         >
-          <div className="flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
-            <p className="text-red-200 text-sm font-medium">
+            <p className="text-red-200 text-xs sm:text-sm font-medium">
               {gameState.consecutiveTimeouts[currentPlayerId || ''] === 4 
                 ? 'Final warning: You will be kicked out if you don\'t make a move this turn.'
                 : 'You will be kicked out for inactivity shortly if you don\'t make a move.'}

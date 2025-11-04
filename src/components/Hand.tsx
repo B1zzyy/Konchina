@@ -27,21 +27,21 @@ export default function Hand({
         transition: 'opacity 0.3s ease-in-out',
       }}
     >
-      <div className="flex justify-center items-center relative" style={{ minHeight: '200px', width: '100%' }}>
+      <div className="flex justify-center items-center relative" style={{ minHeight: isPlayer ? 'clamp(150px, 20vh, 200px)' : 'clamp(120px, 18vh, 180px)', width: '100%' }}>
         {cards.map((card, index) => {
           // Calculate fan positioning
           const totalCards = cards.length;
           const maxRotation = 20; // Maximum rotation angle in degrees
-          // Card spacing: slightly less than card width for nice overlap (lg cards are ~128px, sm are ~64px)
-          // Increased slightly to improve clickability
-          const cardSpacing = isPlayer ? 52 : 30; // Horizontal spacing between card centers
+          // Card spacing: slightly less than card width for nice overlap
+          // Player uses lg cards (~128px), opponent uses md cards (~96px)
+          const cardSpacing = isPlayer ? 52 : 40; // Horizontal spacing between card centers
           const baseRotation = (index - (totalCards - 1) / 2) * (maxRotation / Math.max(1, totalCards - 1));
           const offsetX = (index - (totalCards - 1) / 2) * cardSpacing;
           
           // Compensate Y position so all cards sit at same bottom level despite rotation
           // With transformOrigin 'center bottom', rotated cards have their centers at different heights
-          // Card height: lg = 192px (h-48), sm = 96px (h-24)
-          const cardHeight = isPlayer ? 192 : 96;
+          // Card height: lg = 192px (h-48) for player, md = 144px (h-36) for opponent
+          const cardHeight = isPlayer ? 192 : 144;
           const rotationRad = Math.abs((baseRotation * Math.PI) / 180);
           // Calculate how much the center moves due to rotation, then compensate
           // The further from center, the more we need to adjust downward
@@ -91,7 +91,7 @@ export default function Hand({
                       onCardClick(card);
                     }
                   }}
-                  size={isPlayer ? 'lg' : 'sm'}
+                  size={isPlayer ? 'lg' : 'md'}
                 />
               </div>
             </motion.div>

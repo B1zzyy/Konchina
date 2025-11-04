@@ -465,7 +465,7 @@ export default function RoomPage() {
       
       {/* Score Display - Top Left (replaces room code) */}
       {currentPlayer && opponent && (
-        <div className="absolute top-4 left-4 bg-black bg-opacity-80 rounded-2xl px-4 sm:px-5 pt-4 sm:pt-5 pb-4 sm:pb-5 shadow-2xl border border-gray-700/50 backdrop-blur-sm w-[280px] sm:w-[300px] flex flex-col">
+        <div className="absolute top-2 sm:top-3 md:top-4 left-2 sm:left-3 md:left-4 bg-black bg-opacity-80 rounded-xl sm:rounded-2xl px-3 sm:px-4 md:px-5 pt-3 sm:pt-4 md:pt-5 pb-3 sm:pb-4 md:pb-5 shadow-2xl border border-gray-700/50 backdrop-blur-sm w-[240px] sm:w-[280px] md:w-[300px] flex flex-col z-30">
           {/* Header */}
           <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700/50 flex-shrink-0">
             <div className="text-xs sm:text-sm text-gray-400 font-medium uppercase tracking-wider">Match</div>
@@ -515,12 +515,12 @@ export default function RoomPage() {
       )}
 
       {/* Leave Button - Top Right */}
-      <div className="absolute top-4 right-4">
+      <div className="absolute top-2 sm:top-3 md:top-4 right-2 sm:right-3 md:right-4 z-30">
         <button
           onClick={() => setShowForfeitConfirm(true)}
-          className="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-xl transition-colors duration-200 shadow-lg flex items-center gap-2"
+          className="bg-red-600 hover:bg-red-700 text-white font-semibold px-2 sm:px-3 md:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl transition-colors duration-200 shadow-lg flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
           </svg>
           Leave
