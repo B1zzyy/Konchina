@@ -49,6 +49,7 @@ export interface GameState {
   lastRoundScore?: RoundScoreResult | null;
   lastCapturePlayerId?: string | null; // Track who made the last capture in the round
   forfeitedBy?: string | null; // Track which player forfeited (their player ID)
+  currentHand?: number; // Track which hand number we're on (1-6)
 }
 
 export interface Move {

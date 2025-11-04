@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Hand from './Hand';
 import Table from './Table';
 import Card from './Card';
-import { Card as CardType, Move } from '@/lib/types';
+import { Card as CardType, Move, RoundScoreResult } from '@/lib/types';
 import { useGameStore } from '@/store/gameStore';
 import { getCapturableCombinations, canCapture } from '@/lib/gameLogic';
 import CaptureAnimation from './CaptureAnimation';
@@ -36,11 +36,51 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
   const [animationMove, setAnimationMove] = useState<{ playedCard: CardType; capturedCards: CardType[]; playerId: string } | null>(null);
   const [showRoundScore, setShowRoundScore] = useState(false);
   const [showGameEnd, setShowGameEnd] = useState(false);
+  const [hasTenDiamonds, setHasTenDiamonds] = useState(false);
+  const [hasTwoClubs, setHasTwoClubs] = useState(false);
+  const lastRoundScoreRef = useRef<RoundScoreResult | null>(null);
+  const capturesAtRoundStart = useRef<{ player: number; opponent: number }>({ player: 0, opponent: 0 });
 
   const currentPlayer = gameState?.players[currentPlayerId || ''];
   const allPlayerIds = gameState ? Object.keys(gameState.players) : [];
   const opponentId = allPlayerIds.find((id) => id !== currentPlayerId) || null;
   const opponent = opponentId && gameState ? gameState.players[opponentId] : null;
+
+  // Track special cards (10♦ and 2♣) - reset when new round starts
+  useEffect(() => {
+    if (!gameState || !currentPlayer || !opponent) return;
+
+    const currentPlayerCaptures = currentPlayer.captures || [];
+    const opponentCaptures = opponent.captures || [];
+
+    // Detect when round score is cleared (new round started)
+    const roundScoreWasCleared = lastRoundScoreRef.current !== null && gameState.lastRoundScore === null;
+    
+    if (roundScoreWasCleared) {
+      // New round started - reset tracking and capture baseline
+      setHasTenDiamonds(false);
+      setHasTwoClubs(false);
+      capturesAtRoundStart.current = {
+        player: currentPlayerCaptures.length,
+        opponent: opponentCaptures.length,
+      };
+    }
+
+    // Update ref to track round score state
+    lastRoundScoreRef.current = gameState.lastRoundScore;
+
+    // Check captures made in current round (after baseline)
+    const currentRoundPlayerCaptures = currentPlayerCaptures.slice(capturesAtRoundStart.current.player);
+    const currentRoundOpponentCaptures = opponentCaptures.slice(capturesAtRoundStart.current.opponent);
+    const currentRoundCaptures = [...currentRoundPlayerCaptures, ...currentRoundOpponentCaptures];
+    
+    const has10Diamonds = currentRoundCaptures.some((c) => c.value === '10' && c.suit === '♦');
+    const has2Clubs = currentRoundCaptures.some((c) => c.value === '2' && c.suit === '♣');
+
+    // Update tracking
+    setHasTenDiamonds(has10Diamonds);
+    setHasTwoClubs(has2Clubs);
+  }, [gameState, currentPlayer, opponent]);
   
   // A player can ALWAYS play a card if they have one selected
   // The card will be placed on the table if no capture is possible
@@ -344,6 +384,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
       setShowRoundScore(true);
     }
   }, [gameState?.lastRoundScore, showRoundScore]);
+  
 
   // Show game end popup when game is finished
   useEffect(() => {
@@ -416,15 +457,48 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
         />
       </div>
 
-      {/* Table (Middle) */}
+      {/* Table (Middle) with Special Cards Tracker */}
       <div className="flex-1 flex items-center justify-center my-4">
-        <Table
-          cards={gameState.tableCards}
-          onCardClick={handleTableCardClick}
-          selectedCards={selectedTableCards}
-          canSelectMultiple={selectedCard?.value !== 'J'}
-          animatingCardIds={animatingCards}
-        />
+        <div className="relative inline-flex items-center">
+          <Table
+            cards={gameState.tableCards}
+            onCardClick={handleTableCardClick}
+            selectedCards={selectedTableCards}
+            canSelectMultiple={selectedCard?.value !== 'J'}
+            animatingCardIds={animatingCards}
+          />
+          
+          {/* Subtle Special Cards Tracker - Right side of table */}
+          <div className="absolute left-full ml-2 sm:ml-3 md:ml-4 top-1/2 transform -translate-y-1/2 flex flex-col gap-3 sm:gap-4">
+            {/* 10♦ Tracker */}
+            <div className={`flex items-center gap-2 sm:gap-2.5 text-base sm:text-lg md:text-xl transition-all duration-300 ${
+              hasTenDiamonds 
+                ? 'text-gray-500/60' 
+                : 'text-green-400/70'
+            }`}>
+              <div className={`w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full transition-all duration-300 ${
+                hasTenDiamonds 
+                  ? 'bg-gray-500/40 border border-gray-600/40' 
+                  : 'bg-green-500/80 shadow-sm shadow-green-500/50'
+              }`} />
+              <span className="font-medium">10♦</span>
+            </div>
+            
+            {/* 2♣ Tracker */}
+            <div className={`flex items-center gap-2 sm:gap-2.5 text-base sm:text-lg md:text-xl transition-all duration-300 ${
+              hasTwoClubs 
+                ? 'text-gray-500/60' 
+                : 'text-green-400/70'
+            }`}>
+              <div className={`w-3 h-3 sm:w-3.5 sm:h-3.5 rounded-full transition-all duration-300 ${
+                hasTwoClubs 
+                  ? 'bg-gray-500/40 border border-gray-600/40' 
+                  : 'bg-green-500/80 shadow-sm shadow-green-500/50'
+              }`} />
+              <span className="font-medium">2♣</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Player Hand (Bottom) */}

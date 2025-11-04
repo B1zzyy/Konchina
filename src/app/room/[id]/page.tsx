@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import GameBoard from '@/components/GameBoard';
 import { useFirebaseSync } from '@/hooks/useFirebaseSync';
 import { useGameStore } from '@/store/gameStore';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, UserProfile } from '@/hooks/useAuth';
 import { Card, Move } from '@/lib/types';
 import { doc, getDoc, updateDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -22,6 +22,7 @@ export default function RoomPage() {
   const { gameState, currentPlayerId, setCurrentPlayerId, resetGame } = useGameStore();
   const { isConnected, error, initializeRoom, makeMove, clearRoundScore } = useFirebaseSync(roomId, playerId);
   const [showForfeitConfirm, setShowForfeitConfirm] = useState(false);
+  const [opponentProfile, setOpponentProfile] = useState<UserProfile | null>(null);
   const hasPaidEntryFee = useRef(false); // Track if we've already paid entry fee
   const hasProcessedPayout = useRef(false); // Track if we've already processed game end payout
 
@@ -284,6 +285,30 @@ export default function RoomPage() {
     checkRoomAndHandleCoins();
   }, [gameState?.gameStatus, gameState?.players, gameState?.forfeitedBy, user?.uid, playerId, currentPlayerId, roomId, db, refreshUserProfile]);
 
+  // Get effective player ID once (before any conditional returns)
+  const effectivePlayerId = playerId || currentPlayerId;
+  const allPlayerIds = gameState?.players ? Object.keys(gameState.players) : [];
+  const opponentId = allPlayerIds.find((id) => id !== effectivePlayerId) || null;
+
+  // Fetch opponent's profile
+  useEffect(() => {
+    if (!opponentId || !db) return;
+
+    const fetchOpponentProfile = async () => {
+      try {
+        const opponentDoc = await getDoc(doc(db, 'users', opponentId));
+        if (opponentDoc.exists()) {
+          const profile = opponentDoc.data() as UserProfile;
+          setOpponentProfile(profile);
+        }
+      } catch (error) {
+        console.error('Error fetching opponent profile:', error);
+      }
+    };
+
+    fetchOpponentProfile();
+  }, [opponentId, db]);
+
   // Show loading while checking auth
   if (authLoading) {
     return (
@@ -302,13 +327,11 @@ export default function RoomPage() {
   }
 
   const handleMakeMove = (playedCard: Card, capturedCards: Card[]) => {
-    const effectivePlayerId = playerId || currentPlayerId;
     if (!effectivePlayerId) return;
     makeMove(playedCard, capturedCards);
   };
 
   const handleForfeit = async () => {
-    const effectivePlayerId = playerId || currentPlayerId;
     if (!effectivePlayerId || !gameState) return;
 
     try {
@@ -373,8 +396,6 @@ export default function RoomPage() {
   }
 
   // Direct check: Does the player exist in gameState.players?
-  // Use currentPlayerId from store if playerId state is delayed
-  const effectivePlayerId = playerId || currentPlayerId;
   const playerInGame = gameState?.players?.[effectivePlayerId || ''];
   const playerCount = gameState?.players ? Object.keys(gameState.players).length : 0;
   const waitingForSecond = playerCount < 2;
@@ -411,8 +432,6 @@ export default function RoomPage() {
   // Even if game is finished, we need to render GameBoard so it can show GameEndPopup
   const isMyTurn = gameState.currentPlayerId === effectivePlayerId;
   const currentPlayer = gameState.players[effectivePlayerId];
-  const allPlayerIds = Object.keys(gameState.players);
-  const opponentId = allPlayerIds.find((id) => id !== effectivePlayerId);
   const opponent = opponentId ? gameState.players[opponentId] : null;
 
   return (
@@ -425,16 +444,50 @@ export default function RoomPage() {
       
       {/* Score Display - Top Left (replaces room code) */}
       {currentPlayer && opponent && (
-        <div className="absolute top-4 left-4 bg-black bg-opacity-70 rounded-xl p-4 shadow-xl border border-gray-700/50">
-          <div className="text-sm text-gray-400 mb-2">Scores</div>
-          <div className="flex gap-6">
-            <div>
-              <div className="text-xs text-gray-300 mb-1">You</div>
-              <div className="text-2xl font-bold text-yellow-400">{currentPlayer.score}</div>
+        <div className="absolute top-4 left-4 bg-black bg-opacity-80 rounded-2xl px-4 sm:px-5 pt-4 sm:pt-5 pb-4 sm:pb-5 shadow-2xl border border-gray-700/50 backdrop-blur-sm w-[280px] sm:w-[300px] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700/50 flex-shrink-0">
+            <div className="text-xs sm:text-sm text-gray-400 font-medium uppercase tracking-wider">Match</div>
+            <div className="text-xs sm:text-sm text-gray-500">
+              Hand {gameState.currentHand || 1}/6
             </div>
-            <div>
-              <div className="text-xs text-gray-300 mb-1">Opponent</div>
-              <div className="text-2xl font-bold text-white">{opponent.score}</div>
+          </div>
+
+          {/* Players vs Scores - Compact vertical layout */}
+          <div className="flex flex-col gap-2 pt-1">
+            {/* Current Player (Me) */}
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0 shadow-lg">
+                {(userProfile?.displayName || userProfile?.email || 'M').charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base sm:text-lg font-semibold text-white">Me</div>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-yellow-400 flex-shrink-0">
+                {currentPlayer.score}
+              </div>
+            </div>
+
+            {/* VS Divider */}
+            <div className="flex items-center gap-2 my-1">
+              <div className="flex-1 h-px bg-gray-700/50"></div>
+              <div className="text-gray-500 font-bold text-xs sm:text-sm">VS</div>
+              <div className="flex-1 h-px bg-gray-700/50"></div>
+            </div>
+
+            {/* Opponent */}
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0 shadow-lg">
+                {(opponentProfile?.displayName || opponentProfile?.email || 'O').charAt(0).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-base sm:text-lg font-semibold text-white truncate">
+                  {opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent'}
+                </div>
+              </div>
+              <div className="text-3xl sm:text-4xl font-bold text-white flex-shrink-0">
+                {opponent.score}
+              </div>
             </div>
           </div>
         </div>

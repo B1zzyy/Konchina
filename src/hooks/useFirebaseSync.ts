@@ -61,6 +61,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
               lastMove: null,
               gameStatus: 'waiting',
               lastCapturePlayerId: null,
+              currentHand: 1, // Start at hand 1
             };
 
             transaction.set(roomRef, {
@@ -294,10 +295,13 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
       let finalPlayers = { ...updatedPlayers };
 
       if (newPlayerHand.length === 0 && gameState.players[opponentId].hand.length === 0 && finalDeck.length >= 8) {
-        // New round: deal 4 cards to each player (don't calculate scores yet)
-        console.log('New round: dealing cards from remaining deck');
+        // Mid-round deal: deal 4 cards to each player (don't calculate scores yet)
+        console.log('Mid-round deal: dealing cards from remaining deck');
         const playerNewHand = finalDeck.splice(0, 4);
         const opponentNewHand = finalDeck.splice(0, 4);
+        
+        // Increment hand number
+        const currentHandNumber = (gameState.currentHand || 1) + 1;
 
         finalPlayers = {
           ...updatedPlayers,
@@ -310,6 +314,9 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
             hand: opponentNewHand,
           },
         };
+        
+        // Update hand number in game state (will be set in updatedGameState)
+        gameState.currentHand = currentHandNumber;
       }
 
       // Check if deck is exhausted and both players are out of cards (END OF ROUND)
@@ -416,6 +423,9 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
             },
           };
           
+          // Reset hand number to 1 for new round
+          gameState.currentHand = 1;
+          
           // Update state for new round
           finalDeck = deckAfterTable;
           newTableCards = newRoundTableCards; // Update the table cards variable
@@ -442,6 +452,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
         gameStatus: gameEnded ? 'finished' : 'active',
         lastRoundScore: roundScoreResult || null,
         lastCapturePlayerId: lastCapturePlayerId || null, // Track last capturer (null if no captures yet)
+        currentHand: gameState.currentHand || 1, // Preserve current hand number (incremented during mid-round deals, reset to 1 for new rounds)
       };
 
       await setDoc(roomRef, {

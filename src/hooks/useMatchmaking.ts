@@ -422,6 +422,7 @@ export function useMatchmaking() {
             gameStatus: 'active',
             lastRoundScore: null,
             lastCapturePlayerId: null,
+            currentHand: 1, // Start at hand 1
           };
 
           transaction.set(roomRef, {
