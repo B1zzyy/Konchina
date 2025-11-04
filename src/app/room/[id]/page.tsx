@@ -151,19 +151,18 @@ export default function RoomPage() {
           console.log('[Coins]   - If I WIN: +1000 coins (500 back + 500 prize) = NET +500');
           console.log('[Coins]   - If I LOSE: Just lose entry fee (no additional penalty) = NET -500 total');
 
-          // Get current coins BEFORE transaction (for animation comparison)
+          // Read coins BEFORE transaction to verify entry fee was applied
+          // This is just for logging/debugging - actual coins will be read inside transaction
           const myUserRef = doc(db, 'users', effectivePlayerId);
           const myUserSnapBefore = await getDoc(myUserRef);
-          const coinsBeforePayout = myUserSnapBefore.exists() ? ((myUserSnapBefore.data() as any).coins || 0) : 0;
+          const coinsBeforeTransaction = myUserSnapBefore.exists() ? ((myUserSnapBefore.data() as any).coins || 0) : 0;
+          console.log('[Coins] 🔍 Coins BEFORE payout transaction (from direct read):', coinsBeforeTransaction);
+          console.log('[Coins] 🔍 Expected coins after entry fee (should match above):', coinsBeforeTransaction);
           
-          console.log('[Coins] 💾 Coins BEFORE payout transaction:', coinsBeforePayout);
-          
-          // Process payouts using transaction
-          // CRITICAL: Each player can only update their own coins due to Firestore security rules
-          // So we only update OUR coins, and the opponent will update theirs separately
           console.log('[Coins] 🔄 Starting payout transaction (updating only my coins)...');
           let payoutSuccess = false;
-          let myNewCoins = coinsBeforePayout;
+          let coinsBeforePayout = 0;
+          let myNewCoins = 0;
           
           try {
             await runTransaction(db, async (transaction) => {
@@ -183,25 +182,36 @@ export default function RoomPage() {
                 throw new Error('My user profile not found');
               }
               
+              // Read current coins INSIDE transaction - this ensures we have the latest value after entry fee
               const myCurrentCoins = (myUserSnap.data() as any).coins || 0;
               
               console.log('[Coins] ===== PAYOUT TRANSACTION START =====');
-              console.log('[Coins] My current coins in transaction:', myCurrentCoins);
+              console.log('[Coins] My current coins in transaction (after entry fee):', myCurrentCoins);
+              console.log('[Coins] Coins before transaction (direct read):', coinsBeforeTransaction);
+              if (myCurrentCoins !== coinsBeforeTransaction) {
+                console.error('[Coins] ⚠️⚠️⚠️ WARNING: Transaction coins differ from direct read! Transaction:', myCurrentCoins, ', Direct:', coinsBeforeTransaction);
+              }
               console.log('[Coins] I won:', iWon);
               console.log('[Coins] wasForfeit:', wasForfeit, ', iForfeited:', iForfeited, ', opponentForfeited:', opponentForfeited);
               
-                    // CRITICAL: Winner gets +1000 (500 back + 500 prize), Loser just loses entry fee (no additional penalty)
-                    if (iWon) {
-                      // Winner: +1000 coins (500 back + 500 prize)
-                      // Current balance already has -500 from entry fee, so we add 1000
-                      myNewCoins = myCurrentCoins + 1000;
-                      console.log('[Coins] 🔄 Updating MY coins: ', myCurrentCoins, ' -> ', myNewCoins, ' (+1000 winner payout)');
-                    } else {
-                      // Loser: No additional coins change (entry fee already deducted when match found)
-                      // Total loss: -500 (entry fee, already deducted)
-                      myNewCoins = myCurrentCoins; // No change, entry fee was already deducted
-                      console.log('[Coins] 🔄 Loser - no coin change (entry fee already deducted): ', myCurrentCoins, ' (NET -500 from entry fee)');
-                    }
+              // CRITICAL: Winner gets +1000 (500 back + 500 prize), Loser just loses entry fee (no additional penalty)
+              if (iWon) {
+                // Winner: +1000 coins (500 back + 500 prize)
+                // Current balance already has -500 from entry fee, so we add 1000
+                // ONLY store coinsBeforePayout for winners (needed for animation)
+                // Use the value from INSIDE transaction (most accurate)
+                coinsBeforePayout = myCurrentCoins;
+                myNewCoins = myCurrentCoins + 1000;
+                console.log('[Coins] 🔄 Winner: Updating coins from', myCurrentCoins, 'to', myNewCoins, '(+1000)');
+                console.log('[Coins] 💾 Storing coinsBeforePayout for winner animation:', coinsBeforePayout);
+              } else {
+                // Loser: No additional coins change (entry fee already deducted when match found)
+                // Total loss: -500 (entry fee, already deducted)
+                // DO NOT store coinsBeforePayout for losers - they don't need animation
+                myNewCoins = myCurrentCoins; // No change, entry fee was already deducted
+                console.log('[Coins] 🔄 Loser: No coin change (entry fee already deducted):', myCurrentCoins, '(NET -500 from entry fee)');
+                console.log('[Coins] ⚠️ NOT storing coins-before-payout for loser - no animation needed');
+              }
               
               // Only update MY coins - opponent will update theirs separately
               transaction.update(myUserRef, {
@@ -216,12 +226,18 @@ export default function RoomPage() {
             // Transaction completed successfully
             payoutSuccess = true;
             console.log('[Coins] ✅✅✅ Payout transaction completed successfully - MY coins updated in database!');
+            console.log('[Coins] 💾 Coins BEFORE payout (from transaction):', coinsBeforePayout);
+            console.log('[Coins] 💰 Coins AFTER payout:', myNewCoins);
+            console.log('[Coins] 📊 Difference:', myNewCoins - coinsBeforePayout);
             
             // Verify the update by reading back from database
             const verifyMyUser = await getDoc(myUserRef);
             if (verifyMyUser.exists()) {
               const myVerifiedCoins = (verifyMyUser.data() as any).coins || 0;
               console.log('[Coins] ✅ VERIFIED: My coins in database:', myVerifiedCoins);
+              if (myVerifiedCoins !== myNewCoins) {
+                console.error('[Coins] ⚠️ WARNING: Verified coins', myVerifiedCoins, 'does not match expected', myNewCoins);
+              }
             }
             
           } catch (payoutError: any) {
@@ -256,11 +272,16 @@ export default function RoomPage() {
             return;
           }
 
-          // Store the coins BEFORE payout in sessionStorage for animation on return to lobby
-          sessionStorage.setItem('coins-before-payout', coinsBeforePayout.toString());
-          console.log('[Coins] 💾 Stored coins BEFORE payout in sessionStorage:', coinsBeforePayout);
-          console.log('[Coins] New balance after payout:', myNewCoins);
-          console.log('[Coins] Difference:', myNewCoins - coinsBeforePayout);
+          // ONLY store coins-before-payout for winners (needed for animation)
+          // Losers should NOT have this stored - they don't need any animation
+          if (iWon && coinsBeforePayout > 0) {
+            sessionStorage.setItem('coins-before-payout', coinsBeforePayout.toString());
+            console.log('[Coins] 💾 Stored coins BEFORE payout in sessionStorage for winner animation:', coinsBeforePayout);
+          } else {
+            console.log('[Coins] ⚠️ NOT storing coins-before-payout (loser - no animation needed)');
+            // Explicitly remove it if it exists from a previous game
+            sessionStorage.removeItem('coins-before-payout');
+          }
           
           // After transaction completes, refresh the user profile to update local state
           if (refreshUserProfile) {

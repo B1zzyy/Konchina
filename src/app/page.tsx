@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, UserProfile } from '@/hooks/useAuth';
 import { useMatchmaking } from '@/hooks/useMatchmaking';
 import AuthForm from '@/components/AuthForm';
 import { db } from '@/lib/firebase';
@@ -19,6 +19,8 @@ export default function Home() {
   const [showRoomModal, setShowRoomModal] = useState(false);
   const [showMatchmakingModal, setShowMatchmakingModal] = useState(false);
   const [createdRoomId, setCreatedRoomId] = useState<string | null>(null);
+  const [matchedOpponentProfile, setMatchedOpponentProfile] = useState<UserProfile | null>(null);
+  const [showPopAnimation, setShowPopAnimation] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const hasChargedEntryFee = useRef(false); // Track if entry fee was charged when match found
   const [coinAnimation, setCoinAnimation] = useState<{ amount: number; type: 'deduct' | 'win' | 'loss' } | null>(null);
@@ -44,17 +46,13 @@ export default function Home() {
           return;
         }
         
-        // First, check for payout coins (stored right before payout transaction)
+        // Check for payout coins (stored inside transaction before payout)
         const payoutCoinsStr = sessionStorage.getItem('coins-before-payout');
         const payoutCoins = payoutCoinsStr ? parseInt(payoutCoinsStr, 10) : null;
         
-        // Also check for coins stored before navigation (fallback)
-        const navCoinsStr = sessionStorage.getItem('coins-before-navigation');
-        const navCoins = navCoinsStr ? parseInt(navCoinsStr, 10) : null;
-        
         console.log('[Coins] 🔄 Checking for coin changes on home page return...');
-        console.log('[Coins] Coins before payout:', payoutCoins);
-        console.log('[Coins] Coins before navigation:', navCoins);
+        console.log('[Coins] Coins before payout (from transaction):', payoutCoins);
+        console.log('[Coins] Current displayed coins:', displayedCoins);
         
         // Skip if we just animated the entry fee (prevent double animation)
         const entryFeeAnimated = sessionStorage.getItem('entry-fee-animated');
@@ -66,104 +64,82 @@ export default function Home() {
         // Refresh profile from database to get latest coins
         const refreshed = await refreshUserProfile();
         
-        if (refreshed) {
-          const newCoins = refreshed.coins;
-          console.log('[Coins] New coins (from database after refresh):', newCoins);
-          
-          // Check if this is a loser case first (no payout, entry fee already deducted)
-          // Losers should have NO animation - entry fee was already animated when match was found
-          const entryFeeCoinsStr = sessionStorage.getItem('coins-before-entry-fee');
-          const entryFeeCoins = entryFeeCoinsStr ? parseInt(entryFeeCoinsStr, 10) : null;
-          
-          // If current coins match entry-fee coins - 500, this is a loser (no payout happened)
-          // AND there's no payout coins stored, then skip animation entirely
-          if (entryFeeCoins !== null && payoutCoins === null) {
-            const expectedLoserCoins = entryFeeCoins - 500;
-            if (newCoins === expectedLoserCoins) {
-              // This is a loser - entry fee already deducted, no payout, no animation needed
-              console.log('[Coins] 🎯 LOSER DETECTED! No payout, entry fee already animated - skipping animation');
-              setDisplayedCoins(newCoins);
-              prevCoinsRef.current = newCoins;
-              // Clear stored values - no animation needed
-              sessionStorage.removeItem('coins-before-entry-fee');
-              sessionStorage.removeItem('coins-before-payout');
-              sessionStorage.removeItem('coins-before-navigation');
-              return; // Exit early - no animation for losers
-            }
-          }
-          
-          // If no stored coins for payout animation, no animation needed
-          if (payoutCoins === null && navCoins === null) {
-            console.log('[Coins] ⏭️ No stored coin values for payout - no animation needed');
-            return;
-          }
-          
-          // Prioritize payout coins if available (most accurate), otherwise use navigation coins
-          const oldCoins = payoutCoins !== null ? payoutCoins : (navCoins !== null ? navCoins : (displayedCoins !== null ? displayedCoins : userProfile.coins));
-          
-          const difference = newCoins - oldCoins;
-          console.log('[Coins] Difference (new - old):', difference);
-          console.log('[Coins] Old balance:', oldCoins, ', New balance:', newCoins);
-          
-          // If there's a significant coin change (>= 100), trigger animation
-          if (Math.abs(difference) >= 100) {
-            console.log('[Coins] 🎯 SIGNIFICANT CHANGE DETECTED! Difference:', difference);
-            
-            // Mark that we're processing this payout (prevent duplicate runs)
-            sessionStorage.setItem('payout-animation-processed', 'true');
-            
-            // Ensure displayed coins is set to old value (might already be set from initialization, but ensure it)
-            if (displayedCoins !== oldCoins) {
-              setDisplayedCoins(oldCoins);
-            }
-            prevCoinsRef.current = oldCoins;
-            
-            // Small delay to ensure state is set, then trigger animation
-            setTimeout(() => {
-              if (difference > 0) {
-                // Win: +1000 (count UP)
-                console.log('[Coins] 🎉 WIN! Animating +1000 coins (counting UP from', oldCoins, 'to', newCoins, ')');
-                setCoinAnimation({ amount: 1000, type: 'win' });
-                animateCoinCountdown(oldCoins, newCoins);
-                setTimeout(() => {
-                  setCoinAnimation(null);
-                  prevCoinsRef.current = newCoins;
-                  setDisplayedCoins(newCoins);
-                  // Clear stored values AFTER animation completes
-                  if (payoutCoinsStr) sessionStorage.removeItem('coins-before-payout');
-                  if (navCoinsStr) sessionStorage.removeItem('coins-before-navigation');
-                  if (entryFeeCoinsStr) sessionStorage.removeItem('coins-before-entry-fee');
-                  sessionStorage.removeItem('payout-animation-processed');
-                }, 2800);
-              } else {
-                // This shouldn't happen for losers (handled above), but just in case
-                const amount = Math.abs(difference);
-                const animType = 'loss';
-                console.log('[Coins] 💸 LOSS! Animating', amount, 'coins (counting DOWN from', oldCoins, 'to', newCoins, ')');
-                setCoinAnimation({ amount: amount, type: animType });
-                animateCoinCountdown(oldCoins, newCoins);
-                setTimeout(() => {
-                  setCoinAnimation(null);
-                  prevCoinsRef.current = newCoins;
-                  setDisplayedCoins(newCoins);
-                  // Clear stored values AFTER animation completes
-                  if (payoutCoinsStr) sessionStorage.removeItem('coins-before-payout');
-                  if (navCoinsStr) sessionStorage.removeItem('coins-before-navigation');
-                  if (entryFeeCoinsStr) sessionStorage.removeItem('coins-before-entry-fee');
-                  sessionStorage.removeItem('payout-animation-processed');
-                }, 2800);
-              }
-            }, 300);
-          } else {
-            // No significant change, just update
-            console.log('[Coins] No significant change (difference:', difference, '), updating display');
-            setDisplayedCoins(newCoins);
-            prevCoinsRef.current = newCoins;
-            // Clear stored values even if no animation
-            if (payoutCoinsStr) sessionStorage.removeItem('coins-before-payout');
-            if (navCoinsStr) sessionStorage.removeItem('coins-before-navigation');
-          }
+        if (!refreshed) {
+          console.log('[Coins] ⏭️ Failed to refresh profile');
+          return;
         }
+        
+        const newCoins = refreshed.coins;
+        console.log('[Coins] New coins (from database after refresh):', newCoins);
+        
+        // If no payout coins stored, this means no payout happened (loser case)
+        // Losers should have NO animation - entry fee was already animated when match was found
+        if (payoutCoins === null) {
+          console.log('[Coins] 🎯 NO PAYOUT COINS STORED - This is a loser case, entry fee already animated');
+          setDisplayedCoins(newCoins);
+          prevCoinsRef.current = newCoins;
+          // Clear all stored values - no animation needed
+          sessionStorage.removeItem('coins-before-entry-fee');
+          sessionStorage.removeItem('coins-after-entry-fee');
+          sessionStorage.removeItem('coins-before-payout');
+          return; // Exit early - no animation for losers
+        }
+        
+        // We have payout coins - this is a winner case
+        // Use coins-after-entry-fee as the source of truth (most reliable)
+        const afterEntryFeeStr = sessionStorage.getItem('coins-after-entry-fee');
+        const afterEntryFee = afterEntryFeeStr ? parseInt(afterEntryFeeStr, 10) : null;
+        
+        // Use afterEntryFee if available (most reliable), otherwise use payoutCoins
+        const oldCoins = afterEntryFee !== null ? afterEntryFee : payoutCoins;
+        const difference = newCoins - oldCoins;
+        
+        console.log('[Coins] 🎯 WINNER CASE DETECTED!');
+        console.log('[Coins] Coins after entry fee (from entry fee - SOURCE OF TRUTH):', afterEntryFee);
+        console.log('[Coins] Coins before payout (from payout transaction):', payoutCoins);
+        console.log('[Coins] Coins after payout (from database):', newCoins);
+        console.log('[Coins] Using oldCoins for animation:', oldCoins);
+        console.log('[Coins] Difference (newCoins - oldCoins):', difference);
+        
+        // Validate: winner should have +1000 coins
+        if (difference !== 1000) {
+          console.error('[Coins] ⚠️ WARNING: Expected +1000 coins for winner, but got:', difference);
+          console.error('[Coins] ⚠️ This might be stale data - clearing and skipping animation');
+          setDisplayedCoins(newCoins);
+          prevCoinsRef.current = newCoins;
+          // Clear all stored values
+          sessionStorage.removeItem('coins-before-entry-fee');
+          sessionStorage.removeItem('coins-after-entry-fee');
+          sessionStorage.removeItem('coins-before-payout');
+          sessionStorage.removeItem('payout-animation-processed');
+          return; // Exit early - don't animate invalid data
+        }
+        
+        // Mark that we're processing this payout (prevent duplicate runs)
+        sessionStorage.setItem('payout-animation-processed', 'true');
+        
+        // Ensure displayed coins is set to old value
+        setDisplayedCoins(oldCoins);
+        prevCoinsRef.current = oldCoins;
+        
+        // Small delay to ensure state is set, then trigger animation
+        setTimeout(() => {
+          console.log('[Coins] 🎉 WIN! Animating +1000 coins (counting UP from', oldCoins, 'to', newCoins, ')');
+          setCoinAnimation({ amount: 1000, type: 'win' });
+          animateCoinCountdown(oldCoins, newCoins);
+          
+          setTimeout(() => {
+            setCoinAnimation(null);
+            prevCoinsRef.current = newCoins;
+            setDisplayedCoins(newCoins);
+            // Clear stored values AFTER animation completes
+            sessionStorage.removeItem('coins-before-entry-fee');
+            sessionStorage.removeItem('coins-after-entry-fee');
+            sessionStorage.removeItem('coins-before-payout');
+            sessionStorage.removeItem('payout-animation-processed');
+            console.log('[Coins] ✅ Animation complete, coins updated to:', newCoins);
+          }, 2800);
+        }, 300);
       };
       
       // Delay to ensure page is fully loaded and profile is ready
@@ -219,27 +195,79 @@ export default function Home() {
     }
   }, [isInQueue, isMatchmaking, isMatched, matchedRoomId, showMatchmakingModal]);
 
+  // Trigger pop animation when match is found
+  useEffect(() => {
+    if (isMatched || matchedRoomId) {
+      setShowPopAnimation(true);
+      const timer = setTimeout(() => setShowPopAnimation(false), 600);
+      return () => clearTimeout(timer);
+    }
+  }, [isMatched, matchedRoomId]);
+
+  // Fetch opponent profile when matched
+  useEffect(() => {
+    if (!matchedRoomId || !user?.uid || !db) return;
+
+    const fetchOpponentProfile = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', matchedRoomId);
+        const roomSnap = await getDoc(roomRef);
+        
+        if (roomSnap.exists()) {
+          const roomData = roomSnap.data();
+          const players = roomData.players || [];
+          const opponentId = players.find((id: string) => id !== user.uid);
+          
+          if (opponentId) {
+            const opponentDoc = await getDoc(doc(db, 'users', opponentId));
+            if (opponentDoc.exists()) {
+              const profile = opponentDoc.data() as UserProfile;
+              setMatchedOpponentProfile(profile);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching opponent profile:', error);
+      }
+    };
+
+    fetchOpponentProfile();
+  }, [matchedRoomId, user?.uid, db]);
+
   // Charge entry fee IMMEDIATELY when match is found (when "Opponent Found!" appears)
   useEffect(() => {
-    if (!isMatched || !matchedRoomId || !user?.uid || !db || hasChargedEntryFee.current) return;
+    if (!isMatched || !matchedRoomId || !user?.uid || !db) return;
+    
+    // MULTIPLE PROTECTION LAYERS to prevent double charging
+    const entryFeeStorageKey = `entry-paid-${matchedRoomId}-${user.uid}`;
+    
+    // Check 1: sessionStorage
+    if (sessionStorage.getItem(entryFeeStorageKey)) {
+      console.log('[Coins] ⏭️ Entry fee already paid (sessionStorage check) - skipping');
+      hasChargedEntryFee.current = true;
+      return;
+    }
+    
+    // Check 2: ref flag
+    if (hasChargedEntryFee.current) {
+      console.log('[Coins] ⏭️ Entry fee already charged (ref check) - skipping');
+      return;
+    }
+    
+    // Set flag IMMEDIATELY to prevent re-entry
+    hasChargedEntryFee.current = true;
     
     const chargeEntryFee = async () => {
       try {
         console.log('[Coins] 💳 Charging entry fee - match found! Room:', matchedRoomId);
         
-        // Check sessionStorage to prevent duplicate charging
-        const entryFeeStorageKey = `entry-paid-${matchedRoomId}-${user.uid}`;
-        if (sessionStorage.getItem(entryFeeStorageKey)) {
-          console.log('[Coins] Entry fee already paid (sessionStorage check)');
-          hasChargedEntryFee.current = true;
-          return;
-        }
-
+        // Check 3: room data
         const roomRef = doc(db, 'rooms', matchedRoomId);
         const roomSnap = await getDoc(roomRef);
         
         if (!roomSnap.exists()) {
           console.error('[Coins] Room not found when charging entry fee');
+          hasChargedEntryFee.current = false; // Reset flag on error
           return;
         }
 
@@ -249,7 +277,6 @@ export default function Home() {
         // Check if we've already paid (in case of reconnection)
         if (coinsPaid[user.uid]) {
           console.log('[Coins] Entry fee already paid according to room data');
-          hasChargedEntryFee.current = true;
           sessionStorage.setItem(entryFeeStorageKey, 'true');
           return;
         }
@@ -258,6 +285,18 @@ export default function Home() {
 
         // Charge entry fee using transaction to prevent double charging
         await runTransaction(db, async (transaction) => {
+          // Check 4: Inside transaction - verify coinsPaid again
+          const roomSnapInTx = await transaction.get(roomRef);
+          if (!roomSnapInTx.exists()) return;
+          
+          const roomDataInTx = roomSnapInTx.data();
+          const coinsPaidInTx = roomDataInTx?.coinsPaid || {};
+          
+          if (coinsPaidInTx[user.uid]) {
+            console.log('[Coins] Entry fee already paid (transaction check) - skipping');
+            return;
+          }
+          
           const userRef = doc(db, 'users', user.uid);
           const userSnap = await transaction.get(userRef);
           
@@ -277,7 +316,7 @@ export default function Home() {
             });
             
             // Mark as paid in room
-            const updatedCoinsPaid = { ...coinsPaid, [user.uid]: true };
+            const updatedCoinsPaid = { ...coinsPaidInTx, [user.uid]: true };
             transaction.update(roomRef, {
               coinsPaid: updatedCoinsPaid,
             });
@@ -292,60 +331,68 @@ export default function Home() {
 
         // After transaction completes, refresh the user profile to update local state
         if (entryFeeCharged) {
-          hasChargedEntryFee.current = true;
+          // Mark as paid in sessionStorage
           sessionStorage.setItem(entryFeeStorageKey, 'true');
           
           // Mark that we've animated the entry fee to prevent double animation
           sessionStorage.setItem('entry-fee-animated', 'true');
           
-          // Start coin animation immediately when entry fee is charged
-          if (userProfile) {
-            const startCoins = userProfile.coins;
-            const endCoins = startCoins - 500;
-            
-            console.log('[Coins] 🎬 Starting entry fee animation:', startCoins, '->', endCoins);
-            
-            // Update stored coins for comparison when returning from game
-            // This is AFTER entry fee, so payout comparison will be correct
-            sessionStorage.setItem('coins-before-navigation', endCoins.toString());
-            
-            // Set displayed coins to start value
-            setDisplayedCoins(startCoins);
-            prevCoinsRef.current = startCoins;
-            
-            // Show animation
-            setCoinAnimation({ amount: 500, type: 'deduct' });
-            
-            // Animate countdown
-            animateCoinCountdown(startCoins, endCoins);
-            
-            // Clear animation after 2.5 seconds
-            setTimeout(() => {
-              setCoinAnimation(null);
-              // Update the stored value to the new balance after entry fee
-              setDisplayedCoins(endCoins);
-              prevCoinsRef.current = endCoins;
-            }, 2800);
-          }
-          
-          // Refresh profile AFTER animation completes to prevent triggering double animation
+          // Get the actual balance from database (after transaction committed)
+          // Wait a bit for transaction to fully commit
           setTimeout(async () => {
             if (refreshUserProfile) {
-              await refreshUserProfile();
-              // Clear the flag after refresh completes
-              sessionStorage.removeItem('entry-fee-animated');
+              const refreshed = await refreshUserProfile();
+              if (refreshed) {
+                const actualCoinsAfterEntry = refreshed.coins;
+                console.log('[Coins] 💾 Actual coins after entry fee (from database):', actualCoinsAfterEntry);
+                
+                // Store the ACTUAL balance from database (most reliable)
+                sessionStorage.setItem('coins-after-entry-fee', actualCoinsAfterEntry.toString());
+                console.log('[Coins] 💾 Stored coins-after-entry-fee (from database):', actualCoinsAfterEntry);
+                
+                // Start coin animation with actual values
+                if (userProfile) {
+                  const startCoins = userProfile.coins;
+                  const endCoins = actualCoinsAfterEntry;
+                  
+                  console.log('[Coins] 🎬 Starting entry fee animation:', startCoins, '->', endCoins);
+                  
+                  // Set displayed coins to start value
+                  setDisplayedCoins(startCoins);
+                  prevCoinsRef.current = startCoins;
+                  
+                  // Show animation
+                  setCoinAnimation({ amount: 500, type: 'deduct' });
+                  
+                  // Animate countdown
+                  animateCoinCountdown(startCoins, endCoins);
+                  
+                  // Clear animation after 2.5 seconds
+                  setTimeout(() => {
+                    setCoinAnimation(null);
+                    setDisplayedCoins(endCoins);
+                    prevCoinsRef.current = endCoins;
+                    // Clear the flag after animation completes
+                    sessionStorage.removeItem('entry-fee-animated');
+                  }, 2800);
+                }
+              }
             }
-          }, 3000); // Wait for animation to complete (2800ms + buffer)
+          }, 500); // Small delay to ensure transaction is committed
           
           console.log('[Coins] 💰 Entry fee of 500 coins deducted and profile refresh scheduled');
+        } else {
+          // Reset flag if entry fee wasn't charged
+          hasChargedEntryFee.current = false;
         }
       } catch (err) {
         console.error('[Coins] Error charging entry fee:', err);
+        hasChargedEntryFee.current = false; // Reset flag on error
       }
     };
 
     chargeEntryFee();
-  }, [isMatched, matchedRoomId, user?.uid, db, refreshUserProfile]);
+  }, [isMatched, matchedRoomId, user?.uid, db, refreshUserProfile, userProfile]);
 
   // Animate coin countdown
   const animateCoinCountdown = (start: number, end: number) => {
@@ -368,36 +415,41 @@ export default function Home() {
   };
 
   // Initialize displayed coins - prioritize stored old balance to prevent flash
-  // BUT don't use entry-fee coins if there's no payout (loser case - entry fee already animated)
   useEffect(() => {
     if (userProfile && displayedCoins === null) {
-      // Check for stored old balances first (prevents showing new balance then flashing to old)
+      // Check for payout coins (winner case - need to animate from after-entry-fee to after-payout)
       const payoutCoinsStr = sessionStorage.getItem('coins-before-payout');
       const payoutCoins = payoutCoinsStr ? parseInt(payoutCoinsStr, 10) : null;
       
-      const navCoinsStr = sessionStorage.getItem('coins-before-navigation');
-      const navCoins = navCoinsStr ? parseInt(navCoinsStr, 10) : null;
+      // Also check coins-after-entry-fee as a fallback/verification
+      const afterEntryFeeStr = sessionStorage.getItem('coins-after-entry-fee');
+      const afterEntryFee = afterEntryFeeStr ? parseInt(afterEntryFeeStr, 10) : null;
       
-      const entryFeeCoinsStr = sessionStorage.getItem('coins-before-entry-fee');
-      const entryFeeCoins = entryFeeCoinsStr ? parseInt(entryFeeCoinsStr, 10) : null;
+      console.log('[Coins] Initializing displayed coins...');
+      console.log('[Coins]   - Current userProfile.coins:', userProfile.coins);
+      console.log('[Coins]   - coins-before-payout (from payout):', payoutCoins);
+      console.log('[Coins]   - coins-after-entry-fee (from entry):', afterEntryFee);
       
-      // For losers: If there's a payout stored, use it. Otherwise, don't use entry-fee coins
-      // (entry fee was already animated, so use current balance to avoid duplicate animation)
-      // For winners: Use payout coins (they need to animate from payout to final)
-      let initialCoins = userProfile.coins; // Default to current
+      let initialCoins = userProfile.coins; // Default to current balance
       
       if (payoutCoins !== null) {
-        // Winner case - use payout coins for animation
+        // Winner case - use payout coins (balance after entry fee) for animation
         initialCoins = payoutCoins;
-      } else if (navCoins !== null) {
-        // Fallback - use navigation coins
-        initialCoins = navCoins;
+        console.log('[Coins] ✅ Initialized to coins-before-payout (winner case):', initialCoins);
+        
+        // Verify: payoutCoins should match afterEntryFee (if available)
+        if (afterEntryFee !== null && payoutCoins !== afterEntryFee) {
+          console.error('[Coins] ⚠️⚠️⚠️ MISMATCH! coins-before-payout (', payoutCoins, ') != coins-after-entry-fee (', afterEntryFee, ')');
+          console.error('[Coins] ⚠️ Using payoutCoins for animation, but this might be wrong!');
+        }
+      } else {
+        // Loser case - use current balance (entry fee already deducted and animated)
+        initialCoins = userProfile.coins;
+        console.log('[Coins] ✅ Initialized to current balance (loser case):', initialCoins);
       }
-      // Don't use entryFeeCoins - it would cause duplicate animation for losers
       
       setDisplayedCoins(initialCoins);
       prevCoinsRef.current = initialCoins;
-      console.log('[Coins] Initialized displayed coins:', initialCoins, '(from stored:', payoutCoins !== null || navCoins !== null, ')');
     }
   }, [userProfile, displayedCoins]);
 
@@ -771,44 +823,25 @@ export default function Home() {
 
       {/* Matchmaking Modal */}
       {/* Keep modal open if matched OR if we have matchedRoomId (prevents premature closing) */}
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {(showMatchmakingModal || isMatched || matchedRoomId) && (
           <div className="fixed inset-0 z-[55] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <motion.div
-              key={isMatched || matchedRoomId ? 'matched' : 'searching'}
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
+              animate={{ 
+                opacity: 1, 
+                scale: showPopAnimation ? [1, 1.1, 1] : 1, 
+                y: 0 
+              }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              transition={{ duration: 0.3 }}
+              transition={{ 
+                duration: showPopAnimation ? 0.6 : 0.3,
+                ease: showPopAnimation ? 'easeOut' : 'easeInOut',
+                times: showPopAnimation ? [0, 0.5, 1] : undefined
+              }}
               className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-md w-full mx-4"
             >
-              {(isMatched || matchedRoomId) ? (
-                // Opponent Found Screen - show this for the full delay before navigation
-                <div className="text-center">
-                  <div className="text-6xl mb-4">🎉</div>
-                  <h2 className="text-3xl font-bold text-white mb-2">Opponent Found!</h2>
-                  <p className="text-green-400 text-lg font-semibold mb-2">Starting match...</p>
-                  {/* Entry Fee Notification */}
-                  {userProfile && userProfile.coins >= 500 && (
-                    <div className="bg-yellow-600/20 border border-yellow-500/30 rounded-lg p-3 mb-4">
-                      <p className="text-yellow-300 text-sm font-semibold flex items-center justify-center gap-2">
-                        <span>💳</span>
-                        <span>Entry fee: -500 coins</span>
-                      </p>
-                    </div>
-                  )}
-                  {userProfile && userProfile.coins < 500 && (
-                    <div className="bg-red-600/20 border border-red-500/30 rounded-lg p-3 mb-4">
-                      <p className="text-red-300 text-sm font-semibold">
-                        ⚠️ Insufficient coins! You need 500 coins to play.
-                      </p>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-center gap-2 mb-6">
-                    <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-green-400"></div>
-                  </div>
-                </div>
-              ) : (
+              {!isMatched && !matchedRoomId ? (
                 // Searching Screen
                 <>
                   <div className="text-center mb-6">
@@ -827,12 +860,103 @@ export default function Home() {
                       {/* VS Text */}
                       <div className="text-gray-500 text-xl font-bold">VS</div>
 
-                      {/* Opponent Placeholder */}
+                      {/* Opponent Placeholder with Carousel */}
                       <div className="flex flex-col items-center">
-                        <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center text-gray-500 text-2xl mb-2 shadow-lg animate-pulse">
-                          ?
+                        <div className="w-20 h-20 rounded-full overflow-hidden shadow-lg relative">
+                          {/* Carousel of profile pictures */}
+                          <motion.div
+                            className="flex flex-col"
+                            animate={{ y: [0, -2080] }}
+                            transition={{ 
+                              duration: 8, 
+                              repeat: Infinity, 
+                              ease: 'linear' 
+                            }}
+                          >
+                            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'].map((letter, index) => {
+                              const colors = [
+                                'from-blue-500 to-blue-600',
+                                'from-purple-500 to-purple-600',
+                                'from-pink-500 to-pink-600',
+                                'from-red-500 to-red-600',
+                                'from-orange-500 to-orange-600',
+                                'from-green-500 to-green-600',
+                                'from-teal-500 to-teal-600',
+                                'from-cyan-500 to-cyan-600',
+                                'from-indigo-500 to-indigo-600',
+                                'from-violet-500 to-violet-600',
+                                'from-yellow-500 to-yellow-600',
+                                'from-emerald-500 to-emerald-600',
+                                'from-rose-500 to-rose-600',
+                                'from-amber-500 to-amber-600',
+                                'from-lime-500 to-lime-600',
+                                'from-sky-500 to-sky-600',
+                                'from-fuchsia-500 to-fuchsia-600',
+                                'from-cyan-500 to-cyan-600',
+                                'from-blue-500 to-blue-600',
+                                'from-purple-500 to-purple-600',
+                                'from-pink-500 to-pink-600',
+                                'from-red-500 to-red-600',
+                                'from-orange-500 to-orange-600',
+                                'from-green-500 to-green-600',
+                                'from-teal-500 to-teal-600',
+                                'from-cyan-500 to-cyan-600',
+                              ];
+                              const colorClass = colors[index % colors.length];
+                              
+                              return (
+                                <div
+                                  key={index}
+                                  className={`w-20 h-20 bg-gradient-to-br ${colorClass} flex items-center justify-center text-white font-bold text-2xl flex-shrink-0`}
+                                >
+                                  {letter}
+                                </div>
+                              );
+                            })}
+                            {/* Duplicate set for seamless loop */}
+                            {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'].map((letter, index) => {
+                              const colors = [
+                                'from-blue-500 to-blue-600',
+                                'from-purple-500 to-purple-600',
+                                'from-pink-500 to-pink-600',
+                                'from-red-500 to-red-600',
+                                'from-orange-500 to-orange-600',
+                                'from-green-500 to-green-600',
+                                'from-teal-500 to-teal-600',
+                                'from-cyan-500 to-cyan-600',
+                                'from-indigo-500 to-indigo-600',
+                                'from-violet-500 to-violet-600',
+                                'from-yellow-500 to-yellow-600',
+                                'from-emerald-500 to-emerald-600',
+                                'from-rose-500 to-rose-600',
+                                'from-amber-500 to-amber-600',
+                                'from-lime-500 to-lime-600',
+                                'from-sky-500 to-sky-600',
+                                'from-fuchsia-500 to-fuchsia-600',
+                                'from-cyan-500 to-cyan-600',
+                                'from-blue-500 to-blue-600',
+                                'from-purple-500 to-purple-600',
+                                'from-pink-500 to-pink-600',
+                                'from-red-500 to-red-600',
+                                'from-orange-500 to-orange-600',
+                                'from-green-500 to-green-600',
+                                'from-teal-500 to-teal-600',
+                                'from-cyan-500 to-cyan-600',
+                              ];
+                              const colorClass = colors[index % colors.length];
+                              
+                              return (
+                                <div
+                                  key={`dup-${index}`}
+                                  className={`w-20 h-20 bg-gradient-to-br ${colorClass} flex items-center justify-center text-white font-bold text-2xl flex-shrink-0`}
+                                >
+                                  {letter}
+                                </div>
+                              );
+                            })}
+                          </motion.div>
                         </div>
-                        <p className="text-gray-400 text-sm font-semibold">Searching...</p>
+                        <p className="text-gray-400 text-sm font-semibold mt-2">Searching...</p>
                       </div>
                     </div>
                     <div className="flex items-center justify-center gap-2 mb-4">
@@ -851,6 +975,52 @@ export default function Home() {
                   >
                     Cancel Search
                   </button>
+                </>
+              ) : (
+                // Opponent Found - Same layout but updated
+                <>
+                  <div className="text-center mb-6">
+                    <h2 className="text-2xl font-bold text-white mb-4">Opponent Found!</h2>
+                    <div className="flex items-center justify-center gap-8 mb-6">
+                      {/* Your Profile */}
+                      <div className="flex flex-col items-center">
+                        <div className="w-20 h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
+                          {(userProfile?.displayName || userProfile?.email || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <p className="text-white font-semibold text-sm">
+                          {userProfile?.displayName || userProfile?.email?.split('@')[0] || 'You'}
+                        </p>
+                      </div>
+
+                      {/* VS Text */}
+                      <div className="text-gray-500 text-xl font-bold">VS</div>
+
+                      {/* Matched Opponent Profile */}
+                      <div className="flex flex-col items-center">
+                        {matchedOpponentProfile ? (
+                          <>
+                            <div className="w-20 h-20 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
+                              {(matchedOpponentProfile.displayName || matchedOpponentProfile.email || 'O').charAt(0).toUpperCase()}
+                            </div>
+                            <p className="text-white font-semibold text-sm">
+                              {matchedOpponentProfile.displayName || matchedOpponentProfile.email?.split('@')[0] || 'Opponent'}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center text-gray-500 text-2xl mb-2 shadow-lg animate-pulse">
+                              ?
+                            </div>
+                            <p className="text-gray-400 text-sm font-semibold">Loading...</p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 mb-4">
+                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-green-400"></div>
+                      <span className="text-green-400 text-sm font-semibold">Starting match...</span>
+                    </div>
+                  </div>
                 </>
               )}
             </motion.div>
