@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import { useAuth, UserProfile } from '@/hooks/useAuth';
 import { useMatchmaking } from '@/hooks/useMatchmaking';
 import { usePayment } from '@/hooks/usePayment';
@@ -698,9 +699,17 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8 text-center"
         >
-          <h1 className="text-6xl font-bold text-white mb-3">🎴</h1>
+          <div className="flex justify-center mb-3">
+            <Image 
+              src="/logo.png" 
+              alt="Konchina Logo" 
+              width={96} 
+              height={96} 
+              className="w-24 h-24 object-contain"
+            />
+          </div>
           <h2 className="text-4xl font-bold text-white mb-2">Konchina</h2>
-          <p className="text-green-200 text-sm">Choose your game mode</p>
+
         </motion.div>
 
         {/* Bento Grid Layout */}
@@ -714,7 +723,15 @@ export default function Home() {
           >
             {/* Decorative background pattern */}
             <div className="absolute inset-0 opacity-5">
-              <div className="absolute top-4 right-4 text-6xl">🎴</div>
+              <div className="absolute top-4 right-4 w-16 h-16">
+                <Image 
+                  src="/logo.png" 
+                  alt="" 
+                  width={64} 
+                  height={64} 
+                  className="w-full h-full object-contain"
+                />
+              </div>
               <div className="absolute bottom-4 left-4 text-4xl">♠</div>
               <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-5xl">♥</div>
             </div>

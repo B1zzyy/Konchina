@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import Image from 'next/image';
 import { RoundScoreResult } from '@/lib/types';
 import { useGameStore } from '@/store/gameStore';
 
@@ -98,7 +99,15 @@ export default function RoundScorePopup({
 
           {/* Header */}
           <div className="text-center mb-6">
-            <div className="text-5xl mb-2">🎴</div>
+            <div className="flex justify-center mb-2">
+              <Image 
+                src="/logo.png" 
+                alt="Konchina Logo" 
+                width={80} 
+                height={80} 
+                className="w-20 h-20 object-contain"
+              />
+            </div>
             <h2 className="text-2xl font-semibold text-white">Round Complete</h2>
             <p className="text-sm text-gray-400 mt-1">Score summary</p>
           </div>

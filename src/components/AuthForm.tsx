@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import type React from 'react';
 import { motion } from 'framer-motion';
+import Image from 'next/image';
 import { useAuth } from '@/hooks/useAuth';
 import SignupSuccessPopup from './SignupSuccessPopup';
 
@@ -107,7 +108,15 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       className="bg-black bg-opacity-50 rounded-2xl p-8 md:p-12 max-w-md w-full shadow-2xl"
     >
       <div className="text-center mb-8">
-        <h1 className="text-5xl font-bold text-white mb-2">🎴</h1>
+        <div className="flex justify-center mb-2">
+          <Image 
+            src="/logo.png" 
+            alt="Konchina Logo" 
+            width={80} 
+            height={80} 
+            className="w-20 h-20 object-contain"
+          />
+        </div>
         <h2 className="text-3xl font-bold text-white mb-2">Konchina</h2>
         <p className="text-green-200 text-sm">
           {isSignUp ? 'Create an account to play' : 'Sign in to play'}
