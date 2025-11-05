@@ -17,6 +17,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName?: string;
+  photoURL?: string;
   coins: number;
   createdAt: any;
   emailVerified?: boolean;
@@ -42,6 +43,12 @@ export function useAuth() {
             const profile = userDoc.data() as UserProfile;
             // Sync email verification status from Firebase Auth
             profile.emailVerified = firebaseUser.emailVerified;
+            // Sync photoURL from Firebase Auth to Firestore if it exists and is different
+            if (firebaseUser.photoURL && profile.photoURL !== firebaseUser.photoURL) {
+              profile.photoURL = firebaseUser.photoURL;
+              // Update Firestore with photoURL
+              await setDoc(doc(db, 'users', firebaseUser.uid), { photoURL: firebaseUser.photoURL }, { merge: true });
+            }
             setUserProfile(profile);
           } else {
             // Profile doesn't exist - should have been created on signup, but handle edge case

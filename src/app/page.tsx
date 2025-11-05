@@ -10,7 +10,9 @@ import { usePayment } from '@/hooks/usePayment';
 import AuthForm from '@/components/AuthForm';
 import CoinIcon from '@/components/CoinIcon';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, runTransaction, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
+import { supabase } from '@/lib/supabase';
 
 export default function Home() {
   const [roomId, setRoomId] = useState('');
@@ -34,6 +36,13 @@ export default function Home() {
   const [flyingCoins, setFlyingCoins] = useState<number[]>([]);
   const coinBalanceRef = useRef<HTMLDivElement | null>(null);
   const [showBuyCoinsModal, setShowBuyCoinsModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsUsername, setSettingsUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');
+  const [usernameLoading, setUsernameLoading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // Show auth form if user is not authenticated
@@ -531,6 +540,156 @@ export default function Home() {
     await logout();
   };
 
+  // Initialize settings username when modal opens
+  useEffect(() => {
+    if (showSettingsModal && userProfile) {
+      setSettingsUsername(userProfile.displayName || '');
+      setUsernameError('');
+    }
+  }, [showSettingsModal, userProfile]);
+
+  const handleUpdateUsername = async () => {
+    if (!user || !userProfile || !db) return;
+
+    const trimmedUsername = settingsUsername.trim();
+    
+    // Validate username
+    if (!trimmedUsername) {
+      setUsernameError('Username cannot be empty');
+      return;
+    }
+
+    if (trimmedUsername.length < 3) {
+      setUsernameError('Username must be at least 3 characters');
+      return;
+    }
+
+    if (trimmedUsername.length > 20) {
+      setUsernameError('Username must be less than 20 characters');
+      return;
+    }
+
+    // Check if username is the same as current
+    if (trimmedUsername === userProfile.displayName) {
+      setUsernameError(''); // Clear error if it's the same
+      return;
+    }
+
+    setUsernameLoading(true);
+    setUsernameError('');
+
+    try {
+      // Check if username is already taken by another user
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('displayName', '==', trimmedUsername));
+      const querySnapshot = await getDocs(q);
+
+      // Check if any other user has this username
+      const isTaken = querySnapshot.docs.some(doc => doc.id !== user.uid);
+      
+      if (isTaken) {
+        setUsernameError('This username is already taken');
+        setUsernameLoading(false);
+        return;
+      }
+
+      // Update username
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        displayName: trimmedUsername,
+      });
+
+      // Refresh user profile
+      if (refreshUserProfile) {
+        await refreshUserProfile();
+      }
+
+      setUsernameError('');
+      setUsernameLoading(false);
+    } catch (error: any) {
+      console.error('Error updating username:', error);
+      setUsernameError(error.message || 'Failed to update username');
+      setUsernameLoading(false);
+    }
+  };
+
+  const handlePhotoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!user || !supabase) return;
+
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setPhotoError('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+      setPhotoError('Image must be less than 2MB');
+      return;
+    }
+
+    setPhotoUploading(true);
+    setPhotoError('');
+
+    try {
+      // Create file path: profile-pictures/{userId}/{timestamp}_{filename}
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `profile-pictures/${user.uid}/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('profile-pictures')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('profile-pictures')
+        .getPublicUrl(filePath);
+      
+      // Update Firebase Auth profile with Supabase URL
+      await updateProfile(user, {
+        photoURL: publicUrl
+      });
+
+      // Also save photoURL to Firestore so opponents can see it
+      const userRef = doc(db, 'users', user.uid);
+      await updateDoc(userRef, {
+        photoURL: publicUrl
+      });
+
+      // Reload user to get updated photoURL
+      await user.reload();
+      
+      // Refresh user profile
+      if (refreshUserProfile) {
+        await refreshUserProfile();
+      }
+
+      setPhotoError('');
+      setPhotoUploading(false);
+      
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error: any) {
+      console.error('Error uploading photo:', error);
+      setPhotoError(error.message || 'Failed to upload photo. Please try again.');
+      setPhotoUploading(false);
+    }
+  };
+
   const handleCreateRoom = () => {
     if (!user || !userProfile) {
       setShowAuth(true);
@@ -606,9 +765,19 @@ export default function Home() {
                     onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                     className="flex items-center gap-3 hover:opacity-80 transition-opacity cursor-pointer"
                   >
-                    <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
-                      {(userProfile.displayName || userProfile.email || 'U').charAt(0).toUpperCase()}
-                    </div>
+                    {user?.photoURL ? (
+                      <Image
+                        src={user.photoURL}
+                        alt="Profile"
+                        width={40}
+                        height={40}
+                        className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                        {(userProfile.displayName || userProfile.email || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
                     <div className="text-left">
                       <p className="text-white font-semibold text-sm whitespace-nowrap">
                         {userProfile.displayName || userProfile.email?.split('@')[0]}
@@ -635,8 +804,20 @@ export default function Home() {
                         className="absolute top-full left-0 mt-2 w-auto min-w-[140px] bg-black bg-opacity-90 rounded-xl shadow-2xl border border-gray-700/50 overflow-hidden z-20"
                       >
                         <button
+                          onClick={() => {
+                            setShowProfileDropdown(false);
+                            setShowSettingsModal(true);
+                          }}
+                          className="w-full px-4 py-3 text-left hover:bg-gray-700/50 transition-colors duration-200 flex items-center gap-3 text-gray-200 hover:text-white"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                          </svg>
+                          <span className="font-medium">Settings</span>
+                        </button>
+                        <button
                           onClick={handleSignOut}
-                          className="w-full px-4 py-3 text-left hover:bg-red-500/20 transition-colors duration-200 flex items-center gap-3 text-red-300 hover:text-red-200"
+                          className="w-full px-4 py-3 text-left hover:bg-red-500/20 transition-colors duration-200 flex items-center gap-3 text-red-300 hover:text-red-200 border-t border-gray-700/50"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
@@ -889,9 +1070,19 @@ export default function Home() {
                     <div className="flex items-center justify-center gap-8 mb-6">
                       {/* Your Profile */}
                       <div className="flex flex-col items-center">
-                        <div className="w-20 h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
-                          {(userProfile?.displayName || userProfile?.email || 'U').charAt(0).toUpperCase()}
-                        </div>
+                        {user?.photoURL ? (
+                          <Image
+                            src={user.photoURL}
+                            alt="Your Profile"
+                            width={80}
+                            height={80}
+                            className="w-20 h-20 rounded-full object-cover mb-2 shadow-lg"
+                          />
+                        ) : (
+                          <div className="w-20 h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
+                            {(userProfile?.displayName || userProfile?.email || 'U').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <p className="text-white font-semibold text-sm">
                           {userProfile?.displayName || userProfile?.email?.split('@')[0] || 'You'}
                         </p>
@@ -1024,9 +1215,19 @@ export default function Home() {
                     <div className="flex items-center justify-center gap-8 mb-6">
                       {/* Your Profile */}
                       <div className="flex flex-col items-center">
-                        <div className="w-20 h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
-                          {(userProfile?.displayName || userProfile?.email || 'U').charAt(0).toUpperCase()}
-                        </div>
+                        {user?.photoURL ? (
+                          <Image
+                            src={user.photoURL}
+                            alt="Your Profile"
+                            width={80}
+                            height={80}
+                            className="w-20 h-20 rounded-full object-cover mb-2 shadow-lg"
+                          />
+                        ) : (
+                          <div className="w-20 h-20 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
+                            {(userProfile?.displayName || userProfile?.email || 'U').charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <p className="text-white font-semibold text-sm">
                           {userProfile?.displayName || userProfile?.email?.split('@')[0] || 'You'}
                         </p>
@@ -1039,9 +1240,19 @@ export default function Home() {
                       <div className="flex flex-col items-center">
                         {matchedOpponentProfile ? (
                           <>
-                            <div className="w-20 h-20 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
-                              {(matchedOpponentProfile.displayName || matchedOpponentProfile.email || 'O').charAt(0).toUpperCase()}
-                            </div>
+                            {matchedOpponentProfile.photoURL ? (
+                              <Image
+                                src={matchedOpponentProfile.photoURL}
+                                alt="Opponent Profile"
+                                width={80}
+                                height={80}
+                                className="w-20 h-20 rounded-full object-cover mb-2 shadow-lg"
+                              />
+                            ) : (
+                              <div className="w-20 h-20 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-2xl mb-2 shadow-lg">
+                                {(matchedOpponentProfile.displayName || matchedOpponentProfile.email || 'O').charAt(0).toUpperCase()}
+                              </div>
+                            )}
                             <p className="text-white font-semibold text-sm">
                               {matchedOpponentProfile.displayName || matchedOpponentProfile.email?.split('@')[0] || 'Opponent'}
                             </p>
@@ -1459,6 +1670,142 @@ export default function Home() {
                 </motion.div>
               </div>
 
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettingsModal && userProfile && user && (
+          <div 
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setShowSettingsModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ duration: 0.3 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-md w-full mx-4"
+            >
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-3xl font-bold text-white">Account Settings</h2>
+                <button
+                  onClick={() => setShowSettingsModal(false)}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Profile Picture */}
+                <div className="flex flex-col items-center">
+                  <div className="relative">
+                    {user?.photoURL ? (
+                      <Image
+                        src={user.photoURL}
+                        alt="Profile"
+                        width={96}
+                        height={96}
+                        className="w-24 h-24 rounded-full object-cover mb-3"
+                      />
+                    ) : (
+                      <div className="w-24 h-24 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-3xl mb-3">
+                        {(userProfile.displayName || userProfile.email || 'U').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    {photoUploading && (
+                      <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center mb-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    className="hidden"
+                    id="photo-upload"
+                    disabled={photoUploading}
+                  />
+                  <motion.label
+                    htmlFor="photo-upload"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                      photoUploading
+                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                        : 'bg-yellow-500 hover:bg-yellow-600 text-black'
+                    }`}
+                  >
+                    {photoUploading ? 'Uploading...' : user?.photoURL ? 'Change Photo' : 'Upload Photo'}
+                  </motion.label>
+                  {photoError && (
+                    <p className="text-red-400 text-sm mt-2">{photoError}</p>
+                  )}
+                  <p className="text-gray-500 text-xs mt-1">Max 2MB, JPG/PNG</p>
+                </div>
+
+                {/* Username */}
+                <div>
+                  <label className="block text-white text-sm font-semibold mb-2">
+                    Username
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={settingsUsername}
+                      onChange={(e) => {
+                        setSettingsUsername(e.target.value);
+                        setUsernameError('');
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleUpdateUsername();
+                        }
+                      }}
+                      placeholder="Enter username"
+                      maxLength={20}
+                      className="flex-1 px-4 py-3 rounded-xl bg-white bg-opacity-10 border-2 border-white border-opacity-20 text-white placeholder-gray-500 focus:outline-none focus:border-yellow-500 focus:bg-opacity-15 transition-all duration-200"
+                    />
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleUpdateUsername}
+                      disabled={usernameLoading || settingsUsername.trim() === userProfile.displayName}
+                      className="bg-yellow-500 hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold px-6 py-3 rounded-xl transition-colors"
+                    >
+                      {usernameLoading ? 'Saving...' : 'Save'}
+                    </motion.button>
+                  </div>
+                  {usernameError && (
+                    <p className="text-red-400 text-sm mt-2">{usernameError}</p>
+                  )}
+                  {!usernameError && settingsUsername.trim() !== userProfile.displayName && settingsUsername.trim() && (
+                    <p className="text-gray-400 text-xs mt-2">Press Enter or click Save to update</p>
+                  )}
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-white text-sm font-semibold mb-2">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={userProfile.email || ''}
+                    disabled
+                    className="w-full px-4 py-3 rounded-xl bg-gray-800 border-2 border-gray-700 text-gray-400 cursor-not-allowed"
+                  />
+                  <p className="text-gray-500 text-xs mt-2">Email cannot be changed</p>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

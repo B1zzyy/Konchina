@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import GameBoard from '@/components/GameBoard';
 import { useFirebaseSync } from '@/hooks/useFirebaseSync';
 import { useGameStore } from '@/store/gameStore';
@@ -478,9 +479,19 @@ export default function RoomPage() {
           <div className="flex flex-col gap-1.5 sm:gap-2 pt-0.5 sm:pt-1">
             {/* Current Player (Me) */}
             <div className="flex items-center gap-1.5 sm:gap-3">
-              <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
-                {(userProfile?.displayName || userProfile?.email || 'M').charAt(0).toUpperCase()}
-              </div>
+              {user?.photoURL ? (
+                <Image
+                  src={user.photoURL}
+                  alt="Your Profile"
+                  width={48}
+                  height={48}
+                  className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 rounded-full object-cover flex-shrink-0 shadow-lg"
+                />
+              ) : (
+                <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
+                  {(userProfile?.displayName || userProfile?.email || 'M').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="text-xs sm:text-base md:text-lg font-semibold text-white">Me</div>
               </div>
@@ -498,9 +509,19 @@ export default function RoomPage() {
 
             {/* Opponent */}
             <div className="flex items-center gap-1.5 sm:gap-3">
-              <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
-                {(opponentProfile?.displayName || opponentProfile?.email || 'O').charAt(0).toUpperCase()}
-              </div>
+              {opponentProfile?.photoURL ? (
+                <Image
+                  src={opponentProfile.photoURL}
+                  alt="Opponent Profile"
+                  width={48}
+                  height={48}
+                  className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 rounded-full object-cover flex-shrink-0 shadow-lg"
+                />
+              ) : (
+                <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
+                  {(opponentProfile?.displayName || opponentProfile?.email || 'O').charAt(0).toUpperCase()}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="text-xs sm:text-base md:text-lg font-semibold text-white truncate">
                   {opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent'}
