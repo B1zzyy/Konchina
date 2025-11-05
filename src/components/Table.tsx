@@ -37,7 +37,7 @@ export default function Table({
   const displayCards = cards.length > 0 ? cards : [];
 
   return (
-    <div className="min-h-64 bg-green-800 rounded-3xl p-8 shadow-2xl border-8 border-green-900 relative overflow-hidden">
+    <div className="min-h-64 bg-green-800 rounded-xl sm:rounded-2xl md:rounded-3xl p-3 sm:p-6 md:p-8 shadow-2xl border-4 sm:border-8 md:border-8 border-green-900 relative overflow-hidden">
       {/* Semi-transparent card pattern background when empty */}
       {cards.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center opacity-40 pointer-events-none z-0">
@@ -48,7 +48,7 @@ export default function Table({
             width="120" 
             height="120" 
             fill="none" 
-            className="text-green-900"
+            className="text-green-900 scale-75 sm:scale-100"
           >
             <path 
               d="M3 11C3 8.17157 3 6.75736 3.87868 5.87868C4.75736 5 6.17157 5 9 5H11C13.8284 5 15.2426 5 16.1213 5.87868C17 6.75736 17 8.17157 17 11V16C17 18.8284 17 20.2426 16.1213 21.1213C15.2426 22 13.8284 22 11 22H9C6.17157 22 4.75736 22 3.87868 21.1213C3 20.2426 3 18.8284 3 16V11Z" 
@@ -70,7 +70,7 @@ export default function Table({
         </div>
       )}
       
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 justify-items-center relative z-10">
+      <div className="grid grid-cols-4 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-3 md:gap-4 justify-items-center relative z-10">
         {displayCards.map((card, index) => {
           const animating = isAnimating(card);
           return (
@@ -84,6 +84,7 @@ export default function Table({
               }}
               transition={{ duration: 0.2 }}
               style={{ visibility: animating ? 'hidden' : 'visible' }}
+              className="scale-75 sm:scale-100"
             >
               <Card
                 card={card}
@@ -96,7 +97,7 @@ export default function Table({
         })}
         {/* Placeholder divs to maintain grid size when empty */}
         {emptySlots > 0 && Array.from({ length: emptySlots }).map((_, i) => (
-          <div key={`placeholder-${i}`} className="w-24 h-36" aria-hidden="true" />
+          <div key={`placeholder-${i}`} className="w-24 h-36 scale-75 sm:scale-100" aria-hidden="true" />
         ))}
       </div>
     </div>

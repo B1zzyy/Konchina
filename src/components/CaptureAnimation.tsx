@@ -130,7 +130,11 @@ export default function CaptureAnimation({
           ease: [0.4, 0, 0.2, 1],
         }}
       >
-        <Card card={playedCard} isFaceUp={true} size="lg" />
+        <Card 
+          card={playedCard} 
+          isFaceUp={true} 
+          size={dimensions.width < 640 ? 'md' : 'lg'} 
+        />
       </motion.div>
 
       {/* Captured Cards Animation - pull from table to hand, then exit together */}

@@ -577,8 +577,8 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
             animatingCardIds={animatingCards}
           />
           
-          {/* Subtle Special Cards Tracker - Right side of table */}
-          <div className="absolute left-full ml-1 sm:ml-2 md:ml-3 lg:ml-4 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 sm:gap-3 md:gap-4">
+          {/* Subtle Special Cards Tracker - Bottom on mobile, Right side on desktop */}
+          <div className="absolute top-full sm:top-1/2 sm:-translate-y-1/2 left-1/2 sm:left-full -translate-x-1/2 sm:translate-x-0 mt-1 sm:mt-0 sm:ml-2 md:ml-3 lg:ml-4 flex flex-row sm:flex-col gap-2 sm:gap-3 md:gap-4">
             {/* 10♦ Tracker */}
             <div className={`flex items-center gap-1.5 sm:gap-2 md:gap-2.5 text-sm sm:text-base md:text-lg lg:text-xl transition-all duration-300 ${
               hasTenDiamonds 

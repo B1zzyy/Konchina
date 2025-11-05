@@ -465,48 +465,48 @@ export default function RoomPage() {
       
       {/* Score Display - Top Left (replaces room code) */}
       {currentPlayer && opponent && (
-        <div className="absolute top-2 sm:top-3 md:top-4 left-2 sm:left-3 md:left-4 bg-black bg-opacity-80 rounded-xl sm:rounded-2xl px-3 sm:px-4 md:px-5 pt-3 sm:pt-4 md:pt-5 pb-3 sm:pb-4 md:pb-5 shadow-2xl border border-gray-700/50 backdrop-blur-sm w-[240px] sm:w-[280px] md:w-[300px] flex flex-col z-30">
+        <div className="absolute top-2 sm:top-3 md:top-4 left-2 sm:left-3 md:left-4 bg-black bg-opacity-80 rounded-lg sm:rounded-xl md:rounded-2xl px-2 sm:px-4 md:px-5 pt-2 sm:pt-4 md:pt-5 pb-2 sm:pb-4 md:pb-5 shadow-2xl border border-gray-700/50 backdrop-blur-sm w-[160px] sm:w-[280px] md:w-[300px] flex flex-col z-30">
           {/* Header */}
-          <div className="flex items-center justify-between mb-2 pb-2 border-b border-gray-700/50 flex-shrink-0">
-            <div className="text-xs sm:text-sm text-gray-400 font-medium uppercase tracking-wider">Match</div>
-            <div className="text-xs sm:text-sm text-gray-500">
+          <div className="flex items-center justify-between mb-1.5 sm:mb-2 pb-1.5 sm:pb-2 border-b border-gray-700/50 flex-shrink-0">
+            <div className="text-[10px] sm:text-xs md:text-sm text-gray-400 font-medium uppercase tracking-wider">Match</div>
+            <div className="text-[10px] sm:text-xs md:text-sm text-gray-500">
               Hand {gameState.currentHand || 1}/6
             </div>
           </div>
 
           {/* Players vs Scores - Compact vertical layout */}
-          <div className="flex flex-col gap-2 pt-1">
+          <div className="flex flex-col gap-1.5 sm:gap-2 pt-0.5 sm:pt-1">
             {/* Current Player (Me) */}
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0 shadow-lg">
+            <div className="flex items-center gap-1.5 sm:gap-3">
+              <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
                 {(userProfile?.displayName || userProfile?.email || 'M').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-base sm:text-lg font-semibold text-white">Me</div>
+                <div className="text-xs sm:text-base md:text-lg font-semibold text-white">Me</div>
               </div>
-              <div className="text-3xl sm:text-4xl font-bold text-yellow-400 flex-shrink-0">
+              <div className="text-xl sm:text-3xl md:text-4xl font-bold text-yellow-400 flex-shrink-0">
                 {currentPlayer.score}
               </div>
             </div>
 
             {/* VS Divider */}
-            <div className="flex items-center gap-2 my-1">
+            <div className="flex items-center gap-1.5 sm:gap-2 my-0.5 sm:my-1">
               <div className="flex-1 h-px bg-gray-700/50"></div>
-              <div className="text-gray-500 font-bold text-xs sm:text-sm">VS</div>
+              <div className="text-gray-500 font-bold text-[10px] sm:text-xs md:text-sm">VS</div>
               <div className="flex-1 h-px bg-gray-700/50"></div>
             </div>
 
             {/* Opponent */}
-            <div className="flex items-center gap-3">
-              <div className="w-11 h-11 sm:w-12 sm:h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-base sm:text-lg flex-shrink-0 shadow-lg">
+            <div className="flex items-center gap-1.5 sm:gap-3">
+              <div className="w-7 h-7 sm:w-11 md:w-12 sm:h-11 md:h-12 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-bold text-xs sm:text-base md:text-lg flex-shrink-0 shadow-lg">
                 {(opponentProfile?.displayName || opponentProfile?.email || 'O').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-base sm:text-lg font-semibold text-white truncate">
+                <div className="text-xs sm:text-base md:text-lg font-semibold text-white truncate">
                   {opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent'}
                 </div>
               </div>
-              <div className="text-3xl sm:text-4xl font-bold text-white flex-shrink-0">
+              <div className="text-xl sm:text-3xl md:text-4xl font-bold text-white flex-shrink-0">
                 {opponent.score}
               </div>
             </div>

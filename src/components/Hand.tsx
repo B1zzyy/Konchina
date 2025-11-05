@@ -70,6 +70,7 @@ export default function Hand({
             >
               <div 
                 onClick={(e: any) => e.stopPropagation()}
+                className="scale-90 sm:scale-100"
                 style={{ 
                   padding: '8px', // Expand click area
                   margin: '-8px', // Compensate padding so card doesn't move

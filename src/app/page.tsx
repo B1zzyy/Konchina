@@ -595,7 +595,7 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-green-900 via-green-800 to-green-900 flex items-center justify-center p-4">
       {/* Fixed Header Bar - Top of page, centered */}
       {userProfile && (
-        <div className="fixed top-0 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pt-4 z-[60]">
+        <div className="fixed top-0 left-1/2 transform -translate-x-1/2 w-full max-w-4xl px-4 pt-3 sm:pt-4 z-[60]">
           <div className="flex items-center gap-3">
             <div className="bg-black bg-opacity-70 rounded-xl p-3 shadow-xl border border-gray-700/50 w-full">
               <div className="flex items-center justify-between gap-4">
@@ -692,7 +692,7 @@ export default function Home() {
       )}
 
       {/* Bento Grid - Centered */}
-      <div className="w-full max-w-4xl px-4">
+      <div className="w-full max-w-4xl px-4 pt-24 sm:pt-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
