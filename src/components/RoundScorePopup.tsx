@@ -114,12 +114,12 @@ export default function RoundScorePopup({
 
           {/* Total Score Progress Bar */}
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
+            <div className="relative flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-gray-300">You</span>
                 <span className="text-lg font-bold text-yellow-400">{myTotalScore}</span>
               </div>
-              <div className="text-xs text-gray-400 font-medium">16</div>
+              <div className="absolute left-1/2 transform -translate-x-1/2 text-base font-bold text-white">16</div>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold text-white">{opponentTotalScore}</span>
                 <span className="text-xs font-medium text-gray-300">Opponent</span>

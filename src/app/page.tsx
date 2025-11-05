@@ -59,7 +59,6 @@ export default function Home() {
         // Check if we've already processed this payout (prevent duplicate animations)
         const payoutProcessed = sessionStorage.getItem('payout-animation-processed');
         if (payoutProcessed === 'true') {
-          console.log('[Coins] ⏭️ Skipping - payout animation already processed');
           return;
         }
         
@@ -67,14 +66,9 @@ export default function Home() {
         const payoutCoinsStr = sessionStorage.getItem('coins-before-payout');
         const payoutCoins = payoutCoinsStr ? parseInt(payoutCoinsStr, 10) : null;
         
-        console.log('[Coins] 🔄 Checking for coin changes on home page return...');
-        console.log('[Coins] Coins before payout (from transaction):', payoutCoins);
-        console.log('[Coins] Current displayed coins:', displayedCoins);
-        
         // Skip if we just animated the entry fee (prevent double animation)
         const entryFeeAnimated = sessionStorage.getItem('entry-fee-animated');
         if (entryFeeAnimated === 'true') {
-          console.log('[Coins] ⏭️ Skipping coin change check - entry fee animation just completed');
           return;
         }
         
@@ -82,17 +76,14 @@ export default function Home() {
         const refreshed = await refreshUserProfile();
         
         if (!refreshed) {
-          console.log('[Coins] ⏭️ Failed to refresh profile');
           return;
         }
         
         const newCoins = refreshed.coins;
-        console.log('[Coins] New coins (from database after refresh):', newCoins);
         
         // If no payout coins stored, this means no payout happened (loser case)
         // Losers should have NO animation - entry fee was already animated when match was found
         if (payoutCoins === null) {
-          console.log('[Coins] 🎯 NO PAYOUT COINS STORED - This is a loser case, entry fee already animated');
           setDisplayedCoins(newCoins);
           prevCoinsRef.current = newCoins;
           // Clear all stored values - no animation needed
@@ -111,17 +102,8 @@ export default function Home() {
         const oldCoins = afterEntryFee !== null ? afterEntryFee : payoutCoins;
         const difference = newCoins - oldCoins;
         
-        console.log('[Coins] 🎯 WINNER CASE DETECTED!');
-        console.log('[Coins] Coins after entry fee (from entry fee - SOURCE OF TRUTH):', afterEntryFee);
-        console.log('[Coins] Coins before payout (from payout transaction):', payoutCoins);
-        console.log('[Coins] Coins after payout (from database):', newCoins);
-        console.log('[Coins] Using oldCoins for animation:', oldCoins);
-        console.log('[Coins] Difference (newCoins - oldCoins):', difference);
-        
         // Validate: winner should have +1000 coins
         if (difference !== 1000) {
-          console.error('[Coins] ⚠️ WARNING: Expected +1000 coins for winner, but got:', difference);
-          console.error('[Coins] ⚠️ This might be stale data - clearing and skipping animation');
           setDisplayedCoins(newCoins);
           prevCoinsRef.current = newCoins;
           // Clear all stored values
@@ -141,7 +123,6 @@ export default function Home() {
         
         // Small delay to ensure state is set, then trigger animation
         setTimeout(() => {
-          console.log('[Coins] 🎉 WIN! Animating +1000 coins (counting UP from', oldCoins, 'to', newCoins, ')');
           setCoinAnimation({ amount: 1000, type: 'win' });
           animateCoinCountdown(oldCoins, newCoins);
           
@@ -163,7 +144,6 @@ export default function Home() {
             sessionStorage.removeItem('coins-after-entry-fee');
             sessionStorage.removeItem('coins-before-payout');
             sessionStorage.removeItem('payout-animation-processed');
-            console.log('[Coins] ✅ Animation complete, coins updated to:', newCoins);
           }, 2800);
         }, 300);
       };
@@ -540,13 +520,15 @@ export default function Home() {
     await logout();
   };
 
-  // Initialize settings username when modal opens
+  // Initialize settings username when modal opens (only on open, not on userProfile changes)
   useEffect(() => {
     if (showSettingsModal && userProfile) {
       setSettingsUsername(userProfile.displayName || '');
       setUsernameError('');
     }
-  }, [showSettingsModal, userProfile]);
+    // Only run when modal opens, not when userProfile changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSettingsModal]);
 
   const handleUpdateUsername = async () => {
     if (!user || !userProfile || !db) return;
@@ -1705,51 +1687,59 @@ export default function Home() {
               <div className="space-y-6">
                 {/* Profile Picture */}
                 <div className="flex flex-col items-center">
-                  <div className="relative">
+                  <div className="relative group">
                     {user?.photoURL ? (
                       <Image
                         src={user.photoURL}
                         alt="Profile"
                         width={96}
                         height={96}
-                        className="w-24 h-24 rounded-full object-cover mb-3"
+                        className="w-24 h-24 rounded-full object-cover"
                       />
                     ) : (
-                      <div className="w-24 h-24 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-3xl mb-3">
+                      <div className="w-24 h-24 bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-full flex items-center justify-center text-white font-bold text-3xl">
                         {(userProfile.displayName || userProfile.email || 'U').charAt(0).toUpperCase()}
                       </div>
                     )}
                     {photoUploading && (
-                      <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center mb-3">
+                      <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
                       </div>
                     )}
+                    {/* Edit Icon Button */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      className="hidden"
+                      id="photo-upload"
+                      disabled={photoUploading}
+                    />
+                    <motion.label
+                      htmlFor="photo-upload"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      className={`absolute bottom-0 right-0 w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center cursor-pointer shadow-lg border-2 border-gray-900 transition-all ${
+                        photoUploading
+                          ? 'opacity-50 cursor-not-allowed'
+                          : 'hover:bg-yellow-400 hover:scale-110'
+                      }`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 text-black"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                      >
+                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                      </svg>
+                    </motion.label>
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handlePhotoUpload}
-                    className="hidden"
-                    id="photo-upload"
-                    disabled={photoUploading}
-                  />
-                  <motion.label
-                    htmlFor="photo-upload"
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className={`cursor-pointer px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      photoUploading
-                        ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                        : 'bg-yellow-500 hover:bg-yellow-600 text-black'
-                    }`}
-                  >
-                    {photoUploading ? 'Uploading...' : user?.photoURL ? 'Change Photo' : 'Upload Photo'}
-                  </motion.label>
                   {photoError && (
-                    <p className="text-red-400 text-sm mt-2">{photoError}</p>
+                    <p className="text-red-400 text-sm mt-3">{photoError}</p>
                   )}
-                  <p className="text-gray-500 text-xs mt-1">Max 2MB, JPG/PNG</p>
+                  <p className="text-gray-500 text-xs mt-2">Max 2MB, JPG/PNG</p>
                 </div>
 
                 {/* Username */}
