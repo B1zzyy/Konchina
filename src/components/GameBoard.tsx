@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import Hand from './Hand';
 import Table from './Table';
 import Card from './Card';
-import { Card as CardType, Move, RoundScoreResult } from '@/lib/types';
+import { Card as CardType, Move, RoundScoreResult, BackgroundTheme } from '@/lib/types';
 import { useGameStore } from '@/store/gameStore';
 import { getCapturableCombinations, canCapture } from '@/lib/gameLogic';
 import CaptureAnimation from './CaptureAnimation';
@@ -16,9 +17,21 @@ interface GameBoardProps {
   onMakeMove: (playedCard: CardType, capturedCards: CardType[], isTimeoutMove?: boolean) => void;
   onClearRoundScore?: () => void;
   isMyTurn: boolean;
+  activeBackground?: string; // ID of active background theme
 }
 
-export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: GameBoardProps) {
+// Available background themes (should match the ones in page.tsx)
+const BACKGROUND_THEMES: BackgroundTheme[] = [
+  {
+    id: 'xmas-wallpaper',
+    name: 'Christmas Wallpaper',
+    imagePath: '/backgrounds/xmas wallpaper.png',
+    price: 5000,
+  },
+  // Add more backgrounds here as you add them
+];
+
+export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn, activeBackground }: GameBoardProps) {
   const {
     gameState,
     currentPlayerId,
@@ -554,8 +567,33 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
     );
   }
 
+  // Get active background theme
+  const activeTheme = activeBackground 
+    ? BACKGROUND_THEMES.find(bg => bg.id === activeBackground)
+    : null;
+
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-b from-green-900 to-green-700 p-2 sm:p-3 md:p-4 overflow-hidden">
+    <div className="flex flex-col h-screen p-2 sm:p-3 md:p-4 overflow-hidden relative">
+      {/* Background Image or Default Gradient */}
+      {activeTheme ? (
+        <div className="absolute inset-0 z-0">
+          <Image
+            src={activeTheme.imagePath}
+            alt={activeTheme.name}
+            fill
+            className="object-cover"
+            priority
+            quality={90}
+          />
+          {/* Dark overlay to ensure readability */}
+          <div className="absolute inset-0 bg-black/40" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 z-0 bg-gradient-to-b from-green-900 to-green-700" />
+      )}
+      
+      {/* Content with relative positioning */}
+      <div className="relative z-10 flex flex-col h-full">
       {/* Opponent Hand (Top) */}
       <div className="flex-shrink-0 min-h-0 flex items-center justify-center py-1 sm:py-2">
         <Hand
@@ -691,6 +729,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           }}
         />
       )}
+      </div>
 
       {/* AFK Warning Message - Bottom Left */}
       {isMyTurn && gameState?.consecutiveTimeouts && gameState.consecutiveTimeouts[currentPlayerId || ''] && gameState.consecutiveTimeouts[currentPlayerId || ''] >= 3 && (
@@ -698,7 +737,7 @@ export default function GameBoard({ onMakeMove, onClearRoundScore, isMyTurn }: G
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
-          className="absolute bottom-2 sm:bottom-3 md:bottom-4 left-2 sm:left-3 md:left-4 bg-red-500/20 border border-red-500/40 rounded-lg sm:rounded-xl px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 backdrop-blur-sm max-w-[calc(100vw-1rem)] sm:max-w-md z-40"
+          className="absolute bottom-2 sm:bottom-3 md:bottom-4 left-2 sm:left-3 md:left-4 bg-red-500/20 border border-red-500/40 rounded-lg sm:rounded-xl px-2 sm:px-3 md:px-4 py-2 sm:py-2.5 md:py-3 backdrop-blur-sm max-w-[calc(100vw-1rem)] sm:max-w-md z-50"
         >
           <div className="flex items-center gap-1.5 sm:gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 text-red-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">

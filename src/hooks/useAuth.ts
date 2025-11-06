@@ -21,6 +21,8 @@ export interface UserProfile {
   coins: number;
   createdAt: any;
   emailVerified?: boolean;
+  purchasedBackgrounds?: string[]; // Array of background IDs the user has purchased
+  activeBackground?: string; // ID of currently active background (null/undefined = default green)
 }
 
 export function useAuth() {

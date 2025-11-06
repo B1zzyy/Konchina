@@ -10,6 +10,7 @@ import { usePayment } from '@/hooks/usePayment';
 import AuthForm from '@/components/AuthForm';
 import CoinIcon from '@/components/CoinIcon';
 import GameSelectionModal from '@/components/GameSelectionModal';
+import { BackgroundTheme } from '@/lib/types';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, runTransaction, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
@@ -37,8 +38,21 @@ export default function Home() {
   const [flyingCoins, setFlyingCoins] = useState<number[]>([]);
   const coinBalanceRef = useRef<HTMLDivElement | null>(null);
   const [showBuyCoinsModal, setShowBuyCoinsModal] = useState(false);
+  const [buyCoinsModalTab, setBuyCoinsModalTab] = useState<'coins' | 'backgrounds'>('coins');
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [backgroundLoading, setBackgroundLoading] = useState<string | null>(null);
   const [showGameSelectionModal, setShowGameSelectionModal] = useState(false);
+
+  // Available background themes
+  const BACKGROUND_THEMES: BackgroundTheme[] = [
+    {
+      id: 'xmas-wallpaper',
+      name: 'Christmas Wallpaper',
+      imagePath: '/backgrounds/xmas wallpaper.png',
+      price: 5000, // Price in coins
+    },
+    // Add more backgrounds here as you add them to public/backgrounds/
+  ];
   const [settingsUsername, setSettingsUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [usernameLoading, setUsernameLoading] = useState(false);
@@ -1431,7 +1445,10 @@ export default function Home() {
         {showBuyCoinsModal && (
           <div 
             className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-            onClick={() => setShowBuyCoinsModal(false)}
+            onClick={() => {
+              setShowBuyCoinsModal(false);
+              setBuyCoinsModalTab('coins'); // Reset to coins tab when closing
+            }}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -1439,12 +1456,17 @@ export default function Home() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               transition={{ duration: 0.3 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto"
+              className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto flex flex-col"
             >
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-3xl font-bold text-white">Buy Coins</h2>
+              <div className="flex items-center justify-between mb-6 flex-shrink-0">
+                <h2 className="text-3xl font-bold text-white">
+                  {buyCoinsModalTab === 'coins' ? 'Buy Coins' : 'Background Themes'}
+                </h2>
                 <button
-                  onClick={() => setShowBuyCoinsModal(false)}
+                  onClick={() => {
+                    setShowBuyCoinsModal(false);
+                    setBuyCoinsModalTab('coins'); // Reset to coins tab when closing
+                  }}
                   className="text-gray-400 hover:text-white transition-colors"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
@@ -1453,7 +1475,10 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="space-y-3">
+              {/* Tab Content */}
+              <div className="flex-1 overflow-y-auto pb-20">
+                {buyCoinsModalTab === 'coins' ? (
+                  <div className="space-y-3">
                 {/* Coin Package 1 - 20,000 coins */}
                 <motion.div
                   whileHover={{ scale: 1.01, x: 4 }}
@@ -1613,7 +1638,237 @@ export default function Home() {
                   >
                     {loadingPackage === '1400000' ? 'Loading...' : '€110.00'}
                   </motion.button>
-                </motion.div>
+                  </motion.div>
+                  </div>
+                ) : (
+                  /* Backgrounds Tab Content */
+                  <div className="space-y-4">
+                    {BACKGROUND_THEMES.length === 0 ? (
+                      <div className="text-center py-12">
+                        <div className="text-6xl mb-4">🎨</div>
+                        <h3 className="text-xl font-semibold text-white mb-2">Background Themes</h3>
+                        <p className="text-gray-400 text-sm">
+                          No backgrounds available yet
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-2">
+                        {BACKGROUND_THEMES.map((background) => {
+                          const isOwned = userProfile?.purchasedBackgrounds?.includes(background.id) || false;
+                          const isActive = userProfile?.activeBackground === background.id;
+                          const canAfford = (userProfile?.coins || 0) >= background.price;
+                          
+                          return (
+                            <div
+                              key={background.id}
+                              className="overflow-visible"
+                            >
+                              <motion.div
+                                whileHover={{ scale: 1.02 }}
+                                className={`relative rounded-xl overflow-hidden border-2 transition-all ${
+                                  isActive
+                                    ? 'border-yellow-500 shadow-lg shadow-yellow-500/50'
+                                    : isOwned
+                                    ? 'border-green-500/50 hover:border-green-500'
+                                    : 'border-gray-700/50 hover:border-gray-600'
+                                }`}
+                              >
+                                {/* Background Preview */}
+                                <div className="relative aspect-video bg-gray-800">
+                                  <Image
+                                    src={background.imagePath}
+                                    alt={background.name}
+                                    fill
+                                    className="object-cover"
+                                    sizes="(max-width: 640px) 100vw, 50vw"
+                                  />
+                                {isActive && (
+                                  <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-2 py-1 rounded-full">
+                                    Active
+                                  </div>
+                                )}
+                                {isOwned && !isActive && (
+                                  <div className="absolute top-2 right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                    Owned
+                                  </div>
+                                )}
+                              </div>
+                              
+                              {/* Background Info */}
+                              <div className="p-4 bg-gray-800/90">
+                                <h3 className="text-white font-semibold mb-2">{background.name}</h3>
+                                
+                                {isOwned ? (
+                                  <div className="flex gap-2">
+                                    {!isActive && (
+                                      <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={async () => {
+                                          if (!user || !userProfile || !db) return;
+                                          
+                                          try {
+                                            const userRef = doc(db, 'users', user.uid);
+                                            await updateDoc(userRef, {
+                                              activeBackground: background.id,
+                                            });
+                                            
+                                            if (refreshUserProfile) {
+                                              await refreshUserProfile();
+                                            }
+                                          } catch (error) {
+                                            console.error('Error setting active background:', error);
+                                            alert('Failed to set background. Please try again.');
+                                          }
+                                        }}
+                                        className="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+                                      >
+                                        Select
+                                      </motion.button>
+                                    )}
+                                    {isActive && (
+                                      <motion.button
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                        onClick={async () => {
+                                          if (!user || !userProfile || !db) return;
+                                          
+                                          try {
+                                            const userRef = doc(db, 'users', user.uid);
+                                            await updateDoc(userRef, {
+                                              activeBackground: null,
+                                            });
+                                            
+                                            if (refreshUserProfile) {
+                                              await refreshUserProfile();
+                                            }
+                                          } catch (error) {
+                                            console.error('Error removing active background:', error);
+                                            alert('Failed to reset background. Please try again.');
+                                          }
+                                        }}
+                                        className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
+                                      >
+                                        Use Default
+                                      </motion.button>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <motion.button
+                                    whileHover={canAfford ? { scale: 1.05 } : {}}
+                                    whileTap={canAfford ? { scale: 0.95 } : {}}
+                                    onClick={async () => {
+                                      if (!user || !userProfile || !db) return;
+                                      
+                                      if (!canAfford) {
+                                        alert(`Insufficient coins! You need ${background.price.toLocaleString()} coins to purchase this background.`);
+                                        return;
+                                      }
+                                      
+                                      setBackgroundLoading(background.id);
+                                      
+                                      try {
+                                        await runTransaction(db, async (transaction) => {
+                                          const userRef = doc(db, 'users', user.uid);
+                                          const userSnap = await transaction.get(userRef);
+                                          
+                                          if (!userSnap.exists()) {
+                                            throw new Error('User not found');
+                                          }
+                                          
+                                          const currentCoins = (userSnap.data() as any).coins || 0;
+                                          const purchasedBackgrounds = (userSnap.data() as any).purchasedBackgrounds || [];
+                                          
+                                          if (currentCoins < background.price) {
+                                            throw new Error('Insufficient coins');
+                                          }
+                                          
+                                          if (purchasedBackgrounds.includes(background.id)) {
+                                            throw new Error('Already purchased');
+                                          }
+                                          
+                                          const newCoins = currentCoins - background.price;
+                                          const updatedBackgrounds = [...purchasedBackgrounds, background.id];
+                                          
+                                          transaction.update(userRef, {
+                                            coins: newCoins,
+                                            purchasedBackgrounds: updatedBackgrounds,
+                                            activeBackground: background.id, // Auto-select after purchase
+                                          });
+                                        });
+                                        
+                                        if (refreshUserProfile) {
+                                          await refreshUserProfile();
+                                        }
+                                      } catch (error: any) {
+                                        console.error('Error purchasing background:', error);
+                                        alert(error.message || 'Failed to purchase background. Please try again.');
+                                      } finally {
+                                        setBackgroundLoading(null);
+                                      }
+                                    }}
+                                    disabled={!canAfford || backgroundLoading === background.id}
+                                    className={`w-full font-bold py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 ${
+                                      canAfford
+                                        ? 'bg-yellow-500 hover:bg-yellow-600 text-black'
+                                        : 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                    }`}
+                                  >
+                                    {backgroundLoading === background.id ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black"></div>
+                                        <span>Processing...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <CoinIcon className={canAfford ? 'text-black' : 'text-gray-400'} size={16} />
+                                        <span>{background.price.toLocaleString()} coins</span>
+                                      </>
+                                    )}
+                                  </motion.button>
+                                )}
+                              </div>
+                            </motion.div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Tabs Navigation - Fixed at bottom */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gray-900/95 border-t border-gray-700/50 rounded-b-3xl p-4 flex-shrink-0">
+                <div className="flex gap-2">
+                  {/* Coins Tab */}
+                  <button
+                    onClick={() => setBuyCoinsModalTab('coins')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold transition-all ${
+                      buyCoinsModalTab === 'coins'
+                        ? 'bg-yellow-500 text-black'
+                        : 'bg-gray-800/50 text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    <CoinIcon className={buyCoinsModalTab === 'coins' ? 'text-black' : 'text-yellow-400'} size={20} />
+                    <span>Coins</span>
+                  </button>
+
+                  {/* Backgrounds Tab */}
+                  <button
+                    onClick={() => setBuyCoinsModalTab('backgrounds')}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold transition-all ${
+                      buyCoinsModalTab === 'backgrounds'
+                        ? 'bg-yellow-500 text-black'
+                        : 'bg-gray-800/50 text-gray-400 hover:text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${buyCoinsModalTab === 'backgrounds' ? 'text-black' : 'text-gray-400'}`} viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                    </svg>
+                    <span>Backgrounds</span>
+                  </button>
+                </div>
               </div>
 
             </motion.div>

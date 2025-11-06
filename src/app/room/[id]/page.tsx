@@ -470,7 +470,8 @@ export default function RoomPage() {
       <GameBoard 
         onMakeMove={handleMakeMove} 
         onClearRoundScore={clearRoundScore}
-        isMyTurn={isMyTurn} 
+        isMyTurn={isMyTurn}
+        activeBackground={userProfile?.activeBackground}
       />
       
       {/* Score Display - Top Left (replaces room code) */}

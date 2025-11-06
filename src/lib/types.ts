@@ -71,3 +71,10 @@ export interface Room {
   reward?: number; // Reward for matchmaking games
   winCondition?: number; // Win condition (16 or 21 points) for matchmaking games
 }
+
+export interface BackgroundTheme {
+  id: string;
+  name: string;
+  imagePath: string;
+  price: number;
+}
