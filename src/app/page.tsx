@@ -9,6 +9,7 @@ import { useMatchmaking } from '@/hooks/useMatchmaking';
 import { usePayment } from '@/hooks/usePayment';
 import AuthForm from '@/components/AuthForm';
 import CoinIcon from '@/components/CoinIcon';
+import GameSelectionModal from '@/components/GameSelectionModal';
 import { db } from '@/lib/firebase';
 import { doc, getDoc, runTransaction, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 import { updateProfile } from 'firebase/auth';
@@ -37,6 +38,7 @@ export default function Home() {
   const coinBalanceRef = useRef<HTMLDivElement | null>(null);
   const [showBuyCoinsModal, setShowBuyCoinsModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showGameSelectionModal, setShowGameSelectionModal] = useState(false);
   const [settingsUsername, setSettingsUsername] = useState('');
   const [usernameError, setUsernameError] = useState('');
   const [usernameLoading, setUsernameLoading] = useState(false);
@@ -102,8 +104,12 @@ export default function Home() {
         const oldCoins = afterEntryFee !== null ? afterEntryFee : payoutCoins;
         const difference = newCoins - oldCoins;
         
-        // Validate: winner should have +1000 coins
-        if (difference !== 1000) {
+        // Get reward from sessionStorage (stored when game was created)
+        const rewardStr = sessionStorage.getItem('game-reward');
+        const reward = rewardStr ? parseInt(rewardStr, 10) : 1000; // Default to 1000 for backwards compatibility
+        
+        // Validate: winner should have +reward coins
+        if (difference !== reward) {
           setDisplayedCoins(newCoins);
           prevCoinsRef.current = newCoins;
           // Clear all stored values
@@ -111,6 +117,7 @@ export default function Home() {
           sessionStorage.removeItem('coins-after-entry-fee');
           sessionStorage.removeItem('coins-before-payout');
           sessionStorage.removeItem('payout-animation-processed');
+          sessionStorage.removeItem('game-reward');
           return; // Exit early - don't animate invalid data
         }
         
@@ -123,11 +130,13 @@ export default function Home() {
         
         // Small delay to ensure state is set, then trigger animation
         setTimeout(() => {
-          setCoinAnimation({ amount: 1000, type: 'win' });
+          setCoinAnimation({ amount: reward, type: 'win' });
           animateCoinCountdown(oldCoins, newCoins);
           
           // Trigger flying coins animation (wave effect)
-          const coinIds = Array.from({ length: 45 }, (_, i) => i);
+          // Scale number of coins based on reward (more coins for higher rewards)
+          const coinCount = Math.min(45, Math.max(20, Math.floor(reward / 50)));
+          const coinIds = Array.from({ length: coinCount }, (_, i) => i);
           setFlyingCoins(coinIds);
           
           // Clear flying coins after animation completes
@@ -144,6 +153,7 @@ export default function Home() {
             sessionStorage.removeItem('coins-after-entry-fee');
             sessionStorage.removeItem('coins-before-payout');
             sessionStorage.removeItem('payout-animation-processed');
+            sessionStorage.removeItem('game-reward');
           }, 2800);
         }, 300);
       };
@@ -279,6 +289,7 @@ export default function Home() {
 
         const roomData = roomSnap.data();
         const coinsPaid = roomData.coinsPaid || {};
+        const entryFee = roomData.entryFee || 500; // Get entry fee from room, default to 500 for backwards compatibility
         
         // Check if we've already paid (in case of reconnection)
         if (coinsPaid[user.uid]) {
@@ -297,6 +308,7 @@ export default function Home() {
           
           const roomDataInTx = roomSnapInTx.data();
           const coinsPaidInTx = roomDataInTx?.coinsPaid || {};
+          const entryFeeInTx = roomDataInTx?.entryFee || 500;
           
           if (coinsPaidInTx[user.uid]) {
             console.log('[Coins] Entry fee already paid (transaction check) - skipping');
@@ -310,13 +322,13 @@ export default function Home() {
           
           const currentCoins = (userSnap.data() as any).coins || 0;
           
-          if (currentCoins >= 500) {
+          if (currentCoins >= entryFeeInTx) {
             // Store coins BEFORE entry fee (for loser animation comparison later)
             sessionStorage.setItem('coins-before-entry-fee', currentCoins.toString());
             console.log('[Coins] 💾 Stored coins BEFORE entry fee:', currentCoins);
             
             // Deduct entry fee
-            const newCoins = currentCoins - 500;
+            const newCoins = currentCoins - entryFeeInTx;
             transaction.update(userRef, {
               coins: newCoins,
             });
@@ -328,10 +340,10 @@ export default function Home() {
             });
             
             entryFeeCharged = true;
-            console.log('[Coins] ✅ Entry fee charged: -500 coins');
+            console.log('[Coins] ✅ Entry fee charged: -' + entryFeeInTx + ' coins');
             console.log('[Coins] Balance: ', currentCoins, ' -> ', newCoins);
           } else {
-            console.error('[Coins] Insufficient coins to enter matchmaking game. Required: 500, Have:', currentCoins);
+            console.error('[Coins] Insufficient coins to enter matchmaking game. Required:', entryFeeInTx, ', Have:', currentCoins);
           }
         });
 
@@ -367,8 +379,10 @@ export default function Home() {
                   setDisplayedCoins(startCoins);
                   prevCoinsRef.current = startCoins;
                   
-                  // Show animation
-                  setCoinAnimation({ amount: 500, type: 'deduct' });
+                  // Show animation (use entryFee from room, but we need to get it from room data)
+                  // For now, calculate the amount from the difference
+                  const animationAmount = startCoins - endCoins;
+                  setCoinAnimation({ amount: animationAmount, type: 'deduct' });
                   
                   // Animate countdown
                   animateCoinCountdown(startCoins, endCoins);
@@ -386,7 +400,7 @@ export default function Home() {
             }
           }, 500); // Small delay to ensure transaction is committed
           
-          console.log('[Coins] 💰 Entry fee of 500 coins deducted and profile refresh scheduled');
+          console.log('[Coins] 💰 Entry fee of', entryFee, 'coins deducted and profile refresh scheduled');
         } else {
           // Reset flag if entry fee wasn't charged
           hasChargedEntryFee.current = false;
@@ -944,80 +958,30 @@ export default function Home() {
                 <div className="h-px bg-gradient-to-r from-transparent via-gray-600 to-transparent my-3"></div>
               </div>
 
-              {/* Award and Entry - Clear and Centered */}
-              <div className="mb-6 flex-1 flex flex-col items-center justify-center gap-8">
-                {/* Potential Award - Most Prominent */}
-                <div className="flex flex-col items-center gap-3">
-                  <div className="text-gray-300 text-sm font-medium uppercase tracking-wider">Award</div>
-                  <div className="flex items-baseline gap-2">
-                    <CoinIcon className="text-yellow-400" size={32} />
-                    <span className="text-yellow-400 font-bold text-5xl">1,000</span>
-                  </div>
-                </div>
-
-                {/* Entry Fee - Secondary but Clear */}
-                <div className="flex flex-col items-center gap-3">
-                  <div className="text-gray-400 text-xs font-medium uppercase tracking-wider">Entry Fee</div>
-                  <div className="flex items-baseline gap-2">
-                    <CoinIcon className="text-red-400" size={24} />
-                    <span className="text-red-400 font-bold text-3xl">500</span>
-                  </div>
+              {/* Info Text */}
+              <div className="mb-6 flex-1 flex flex-col items-center justify-center gap-4">
+                <div className="text-gray-300 text-center text-sm">
+                  Choose from different game modes with varying entry fees and rewards
                 </div>
               </div>
 
               {/* Play Button */}
               <motion.button
-                whileHover={userProfile && userProfile.coins >= 500 ? { scale: 1.02, y: -2 } : {}}
-                whileTap={userProfile && userProfile.coins >= 500 ? { scale: 0.98 } : {}}
-                onClick={async () => {
+                whileHover={{ scale: 1.02, y: -2 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
                   if (!user || !userProfile) {
                     setShowAuth(true);
                     return;
                   }
-                  
-                  // Check if user has enough coins
-                  if (userProfile.coins < 500) {
-                    alert('Insufficient coins! You need 500 coins to play online.');
-                    return;
-                  }
-                  
-                  // Store coins before navigating to matchmaking (for animation on return)
-                  if (userProfile.coins !== undefined) {
-                    sessionStorage.setItem('coins-before-navigation', userProfile.coins.toString());
-                    console.log('[Coins] Stored coins before matchmaking:', userProfile.coins);
-                  }
-                  
-                  // Only show modal if not already matched (matched state is handled by listener)
-                  if (!isMatched) {
-                    setShowMatchmakingModal(true);
-                  }
-                  const result = await joinQueue();
-                  if (!result.success && !result.matched) {
-                    setShowMatchmakingModal(false);
-                  }
+                  setShowGameSelectionModal(true);
                 }}
-                disabled={userProfile && userProfile.coins < 500}
-                className={`w-full font-bold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mt-auto ${
-                  userProfile && userProfile.coins < 500
-                    ? 'bg-gray-700/50 text-gray-500 cursor-not-allowed border border-gray-600/50'
-                    : 'bg-gradient-to-b from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white'
-                }`}
+                className="w-full bg-gradient-to-b from-green-600 to-green-700 hover:from-green-500 hover:to-green-600 text-white font-bold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl flex items-center justify-center gap-2 mt-auto"
               >
-                {userProfile && userProfile.coins < 500 ? (
-                  <>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                    </svg>
-                    <span>Insufficient Coins</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Play Now</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                  </>
-                )}
+                <span>Play Now</span>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
               </motion.button>
             </div>
           </motion.div>
@@ -1656,6 +1620,43 @@ export default function Home() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Game Selection Modal */}
+      <GameSelectionModal
+        isOpen={showGameSelectionModal}
+        onClose={() => setShowGameSelectionModal(false)}
+        onSelectGame={async (entryFee, reward, winCondition) => {
+          if (!user || !userProfile) {
+            setShowAuth(true);
+            return;
+          }
+          
+          // Check if user has enough coins
+          if (userProfile.coins < entryFee) {
+            alert(`Insufficient coins! You need ${entryFee.toLocaleString()} coins to play this game mode.`);
+            return;
+          }
+          
+          // Store coins before navigating to matchmaking (for animation on return)
+          if (userProfile.coins !== undefined) {
+            sessionStorage.setItem('coins-before-navigation', userProfile.coins.toString());
+            console.log('[Coins] Stored coins before matchmaking:', userProfile.coins);
+          }
+          
+          // Store reward for animation later
+          sessionStorage.setItem('game-reward', reward.toString());
+          
+          // Only show modal if not already matched (matched state is handled by listener)
+          if (!isMatched) {
+            setShowMatchmakingModal(true);
+          }
+          const result = await joinQueue(entryFee, reward, winCondition);
+          if (!result.success && !result.matched) {
+            setShowMatchmakingModal(false);
+          }
+        }}
+        userCoins={userProfile?.coins || 0}
+      />
 
       {/* Settings Modal */}
       <AnimatePresence>

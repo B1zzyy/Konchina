@@ -1,8 +1,11 @@
 'use client';
 
 import { motion, AnimatePresence } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { useRouter } from 'next/navigation';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 interface GameEndPopupProps {
   onClose: () => void;
@@ -11,6 +14,27 @@ interface GameEndPopupProps {
 export default function GameEndPopup({ onClose }: GameEndPopupProps) {
   const { gameState, currentPlayerId } = useGameStore();
   const router = useRouter();
+  const [winCondition, setWinCondition] = useState(16);
+
+  // Get win condition from room
+  useEffect(() => {
+    if (!gameState?.roomId || !db) return;
+    
+    const fetchWinCondition = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', gameState.roomId);
+        const roomSnap = await getDoc(roomRef);
+        if (roomSnap.exists()) {
+          const winCond = roomSnap.data()?.winCondition || 16;
+          setWinCondition(winCond);
+        }
+      } catch (error) {
+        console.error('Error fetching win condition:', error);
+      }
+    };
+    
+    fetchWinCondition();
+  }, [gameState?.roomId]);
 
   if (!gameState || !currentPlayerId) return null;
 
@@ -28,9 +52,9 @@ export default function GameEndPopup({ onClose }: GameEndPopupProps) {
 
   const myScore = myPlayer.score;
   const opponentScore = opponentPlayer.score;
-  // Game ends when someone reaches 16+. Winner is the player with higher score
-  // If both reach 16+ in same round, player with higher score wins
-  const iWon = wasForfeit ? opponentForfeited : (myScore >= 16 && myScore >= opponentScore);
+  // Game ends when someone reaches winCondition+. Winner is the player with higher score
+  // If both reach winCondition+ in same round, player with higher score wins
+  const iWon = wasForfeit ? opponentForfeited : (myScore >= winCondition && myScore >= opponentScore);
 
   const handleGoHome = () => {
     // Reset game state before navigating to prevent redirect loops

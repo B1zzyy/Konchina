@@ -67,4 +67,7 @@ export interface Room {
   createdAt: number;
   isMatchmaking?: boolean; // True if created via matchmaking (online game), false/null for custom lobbies
   coinsPaid?: { [playerId: string]: boolean }; // Track if each player has paid entry fee
+  entryFee?: number; // Entry fee for matchmaking games
+  reward?: number; // Reward for matchmaking games
+  winCondition?: number; // Win condition (16 or 21 points) for matchmaking games
 }

@@ -11,6 +11,9 @@ interface MatchmakingQueueEntry {
   joinedAt: any;
   status: 'waiting' | 'matched';
   roomId?: string;
+  entryFee?: number; // Entry fee for this matchmaking game
+  reward?: number; // Reward for this matchmaking game
+  winCondition?: number; // Win condition (16 or 21 points)
 }
 
 export function useMatchmaking() {
@@ -301,7 +304,7 @@ export function useMatchmaking() {
     };
   }, [user?.uid, router]);
 
-  const joinQueue = useCallback(async () => {
+  const joinQueue = useCallback(async (entryFee: number = 500, reward: number = 1000, winCondition: number = 16) => {
     if (!user?.uid || !db) {
       setError('User not authenticated');
       return { success: false, error: 'User not authenticated' };
@@ -343,13 +346,19 @@ export function useMatchmaking() {
       let matchedPlayerId: string | null = null;
       let matchedPlayerData: MatchmakingQueueEntry | null = null;
       
-      // Find a player that's not us
+      // Find a player that's not us AND has the same entry fee/reward AND win condition
       if (!waitingSnapshot.empty) {
         for (const doc of waitingSnapshot.docs) {
           if (doc.id !== user.uid) {
-            matchedPlayerId = doc.id;
-            matchedPlayerData = doc.data() as MatchmakingQueueEntry;
-            break;
+            const playerData = doc.data() as MatchmakingQueueEntry;
+            // Match players with the same entry fee, reward, and win condition
+            if (playerData.entryFee === entryFee && 
+                playerData.reward === reward && 
+                playerData.winCondition === winCondition) {
+              matchedPlayerId = doc.id;
+              matchedPlayerData = playerData;
+              break;
+            }
           }
         }
       }
@@ -431,6 +440,9 @@ export function useMatchmaking() {
             createdAt: serverTimestamp(),
             isMatchmaking: true, // Mark as matchmaking game
             coinsPaid: {}, // Will be set when players pay entry fee
+            entryFee, // Store entry fee for this game
+            reward, // Store reward for this game
+            winCondition, // Store win condition for this game
           });
 
           // Mark both players as matched
@@ -442,6 +454,9 @@ export function useMatchmaking() {
             joinedAt: matchedPlayerData.joinedAt,
             status: 'matched',
             roomId,
+            entryFee,
+            reward,
+            winCondition,
           });
 
           transaction.set(queueRef, {
@@ -449,6 +464,9 @@ export function useMatchmaking() {
             joinedAt: serverTimestamp(),
             status: 'matched',
             roomId,
+            entryFee,
+            reward,
+            winCondition,
           });
 
           matched = true;
@@ -459,6 +477,9 @@ export function useMatchmaking() {
             playerId: user.uid,
             joinedAt: serverTimestamp(),
             status: 'waiting',
+            entryFee,
+            reward,
+            winCondition,
           });
           setIsInQueue(true);
         }

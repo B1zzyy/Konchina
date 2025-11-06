@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { RoundScoreResult } from '@/lib/types';
 import { useGameStore } from '@/store/gameStore';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 interface RoundScorePopupProps {
   roundScore: RoundScoreResult;
@@ -17,6 +19,27 @@ export default function RoundScorePopup({
 }: RoundScorePopupProps) {
   const { currentPlayerId, gameState } = useGameStore();
   const [countdown, setCountdown] = useState(7);
+  const [winCondition, setWinCondition] = useState(16);
+
+  // Get win condition from room
+  useEffect(() => {
+    if (!gameState?.roomId || !db) return;
+    
+    const fetchWinCondition = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', gameState.roomId);
+        const roomSnap = await getDoc(roomRef);
+        if (roomSnap.exists()) {
+          const winCond = roomSnap.data()?.winCondition || 16;
+          setWinCondition(winCond);
+        }
+      } catch (error) {
+        console.error('Error fetching win condition:', error);
+      }
+    };
+    
+    fetchWinCondition();
+  }, [gameState?.roomId]);
 
   // Auto-close after 7 seconds
   useEffect(() => {
@@ -60,10 +83,10 @@ export default function RoundScorePopup({
   const myTotalScore = gameState?.players?.[myPlayerId]?.score || 0;
   const opponentTotalScore = gameState?.players?.[opponentPlayerId]?.score || 0;
 
-  // Calculate progress percentages (toward 16 points = 50% of bar)
+  // Calculate progress percentages (toward winCondition points = 50% of bar)
   // Each player's bar fills from their side toward center
-  const myProgress = Math.min((myTotalScore / 16) * 50, 50); // 0-50% from left
-  const opponentProgress = Math.min((opponentTotalScore / 16) * 50, 50); // 0-50% from right
+  const myProgress = Math.min((myTotalScore / winCondition) * 50, 50); // 0-50% from left
+  const opponentProgress = Math.min((opponentTotalScore / winCondition) * 50, 50); // 0-50% from right
 
   const getBonusItems = (details: typeof myDetails) => {
     const items = [];
@@ -119,7 +142,7 @@ export default function RoundScorePopup({
                 <span className="text-xs font-medium text-gray-300">You</span>
                 <span className="text-lg font-bold text-yellow-400">{myTotalScore}</span>
               </div>
-              <div className="absolute left-1/2 transform -translate-x-1/2 text-base font-bold text-white">16</div>
+              <div className="absolute left-1/2 transform -translate-x-1/2 text-base font-bold text-white">{winCondition}</div>
               <div className="flex items-center gap-2">
                 <span className="text-lg font-bold text-white">{opponentTotalScore}</span>
                 <span className="text-xs font-medium text-gray-300">Opponent</span>

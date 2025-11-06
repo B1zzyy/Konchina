@@ -427,11 +427,16 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
         finalPlayers[currentPlayerId].captures = [];
         finalPlayers[opponentId].captures = [];
 
-        // Check if any player has reached 16 or more points AFTER round scores are added
+        // Get win condition from room (default to 16 for backwards compatibility)
+        const roomRef = doc(db, 'rooms', roomId);
+        const roomSnap = await getDoc(roomRef);
+        const winCondition = roomSnap.exists() ? (roomSnap.data()?.winCondition || 16) : 16;
+        
+        // Check if any player has reached win condition or more points AFTER round scores are added
         // The game only ends after a complete round, not during play
         const player1Score = finalPlayers[currentPlayerId].score;
         const player2Score = finalPlayers[opponentId].score;
-        gameEnded = player1Score >= 16 || player2Score >= 16;
+        gameEnded = player1Score >= winCondition || player2Score >= winCondition;
         
         if (gameEnded) {
           console.log('Game ended after round completion! Final scores:', {

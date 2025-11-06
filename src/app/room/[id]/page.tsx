@@ -75,10 +75,15 @@ export default function RoomPage() {
         
         if (!roomSnap.exists()) return;
         
-        const roomData = roomSnap.data();
+          const roomData = roomSnap.data();
         const isMatchmaking = roomData.isMatchmaking === true;
         
         if (!isMatchmaking) return; // Only handle coins for matchmaking games
+        
+        // Get entry fee, reward, and win condition from room (will be used in payout logic)
+        const entryFee = roomData.entryFee || 500; // Get entry fee from room, default to 500 for backwards compatibility
+        const reward = roomData.reward || 1000; // Get reward from room, default to 1000 for backwards compatibility
+        const winCondition = roomData.winCondition || 16; // Get win condition from room, default to 16 for backwards compatibility
 
         // Entry fee is now charged when match is found (in Home page), not here
         // Just verify entry fee was paid for tracking purposes
@@ -139,18 +144,18 @@ export default function RoomPage() {
           
           // Determine winner
           // CRITICAL: If forfeit, the person who did NOT forfeit wins
-          // If no forfeit, player with score >= 16 and higher/equal score wins
-          const iWon = wasForfeit ? opponentForfeited : (myScore >= 16 && myScore >= opponentScore);
+          // If no forfeit, player with score >= winCondition and higher/equal score wins
+          const iWon = wasForfeit ? opponentForfeited : (myScore >= winCondition && myScore >= opponentScore);
 
-          console.log('[Coins] ===== PAYOUT CALCULATION =====');
-          console.log('[Coins] My score:', myScore, ', Opponent score:', opponentScore);
-          console.log('[Coins] wasForfeit:', wasForfeit);
-          console.log('[Coins] iForfeited:', iForfeited, ', opponentForfeited:', opponentForfeited);
-          console.log('[Coins] iWon:', iWon);
-          console.log('[Coins] 💰💰💰 COIN RULES:');
-          console.log('[Coins]   - Entry fee: -500 (already deducted when match found)');
-          console.log('[Coins]   - If I WIN: +1000 coins (500 back + 500 prize) = NET +500');
-          console.log('[Coins]   - If I LOSE: Just lose entry fee (no additional penalty) = NET -500 total');
+              console.log('[Coins] ===== PAYOUT CALCULATION =====');
+              console.log('[Coins] My score:', myScore, ', Opponent score:', opponentScore);
+              console.log('[Coins] wasForfeit:', wasForfeit);
+              console.log('[Coins] iForfeited:', iForfeited, ', opponentForfeited:', opponentForfeited);
+              console.log('[Coins] iWon:', iWon);
+              console.log('[Coins] 💰💰💰 COIN RULES:');
+              console.log('[Coins]   - Entry fee:', entryFee, '(already deducted when match found)');
+              console.log('[Coins]   - If I WIN: +' + reward + ' coins (' + entryFee + ' back + ' + (reward - entryFee) + ' prize) = NET +' + (reward - entryFee));
+              console.log('[Coins]   - If I LOSE: Just lose entry fee (no additional penalty) = NET -' + entryFee + ' total');
 
           // Read coins BEFORE transaction to verify entry fee was applied
           // This is just for logging/debugging - actual coins will be read inside transaction
@@ -195,22 +200,26 @@ export default function RoomPage() {
               console.log('[Coins] I won:', iWon);
               console.log('[Coins] wasForfeit:', wasForfeit, ', iForfeited:', iForfeited, ', opponentForfeited:', opponentForfeited);
               
-              // CRITICAL: Winner gets +1000 (500 back + 500 prize), Loser just loses entry fee (no additional penalty)
+              // Get reward from room data (inside transaction to ensure we have latest)
+              const roomDataInTx = roomSnap.data();
+              const rewardInTx = roomDataInTx?.reward || 1000;
+              
+              // CRITICAL: Winner gets reward (entryFee back + prize), Loser just loses entry fee (no additional penalty)
               if (iWon) {
-                // Winner: +1000 coins (500 back + 500 prize)
-                // Current balance already has -500 from entry fee, so we add 1000
+                // Winner: +reward coins (entryFee back + prize)
+                // Current balance already has -entryFee from entry fee, so we add reward
                 // ONLY store coinsBeforePayout for winners (needed for animation)
                 // Use the value from INSIDE transaction (most accurate)
                 coinsBeforePayout = myCurrentCoins;
-                myNewCoins = myCurrentCoins + 1000;
-                console.log('[Coins] 🔄 Winner: Updating coins from', myCurrentCoins, 'to', myNewCoins, '(+1000)');
+                myNewCoins = myCurrentCoins + rewardInTx;
+                console.log('[Coins] 🔄 Winner: Updating coins from', myCurrentCoins, 'to', myNewCoins, '(+' + rewardInTx + ')');
                 console.log('[Coins] 💾 Storing coinsBeforePayout for winner animation:', coinsBeforePayout);
               } else {
                 // Loser: No additional coins change (entry fee already deducted when match found)
-                // Total loss: -500 (entry fee, already deducted)
+                // Total loss: -entryFee (entry fee, already deducted)
                 // DO NOT store coinsBeforePayout for losers - they don't need animation
                 myNewCoins = myCurrentCoins; // No change, entry fee was already deducted
-                console.log('[Coins] 🔄 Loser: No coin change (entry fee already deducted):', myCurrentCoins, '(NET -500 from entry fee)');
+                console.log('[Coins] 🔄 Loser: No coin change (entry fee already deducted):', myCurrentCoins, '(NET -' + entryFee + ' from entry fee)');
                 console.log('[Coins] ⚠️ NOT storing coins-before-payout for loser - no animation needed');
               }
               
