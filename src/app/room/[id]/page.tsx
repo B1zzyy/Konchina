@@ -9,7 +9,7 @@ import { useFirebaseSync } from '@/hooks/useFirebaseSync';
 import { useGameStore } from '@/store/gameStore';
 import { useAuth, UserProfile } from '@/hooks/useAuth';
 import { Card, Move } from '@/lib/types';
-import { doc, getDoc, updateDoc, runTransaction } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function RoomPage() {
@@ -26,6 +26,11 @@ export default function RoomPage() {
   const [opponentProfile, setOpponentProfile] = useState<UserProfile | null>(null);
   const hasPaidEntryFee = useRef(false); // Track if we've already paid entry fee
   const hasProcessedPayout = useRef(false); // Track if we've already processed game end payout
+  const [opponentDisconnected, setOpponentDisconnected] = useState(false);
+  const [disconnectTimer, setDisconnectTimer] = useState<number>(180); // 3 minutes in seconds
+  const disconnectTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActivityUpdateRef = useRef<NodeJS.Timeout | null>(null);
+  const hasProcessedDisconnectWin = useRef(false);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -340,6 +345,241 @@ export default function RoomPage() {
     fetchOpponentProfile();
   }, [opponentId, db]);
 
+  // Update last activity periodically to track presence
+  useEffect(() => {
+    if (!effectivePlayerId || !db || !roomId || !gameState || gameState.gameStatus !== 'active') {
+      // Clear disconnectedAt when leaving or game ends
+      if (effectivePlayerId && db && roomId) {
+        const roomRef = doc(db, 'rooms', roomId);
+        updateDoc(roomRef, {
+          [`disconnectedAt.${effectivePlayerId}`]: null,
+        }).catch(() => {}); // Ignore errors if room doesn't exist
+      }
+      return;
+    }
+
+    const updateLastActivity = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', roomId);
+        // Update last activity and clear disconnectedAt (player is active)
+        await updateDoc(roomRef, {
+          [`lastActivity.${effectivePlayerId}`]: serverTimestamp(),
+          [`disconnectedAt.${effectivePlayerId}`]: null, // Clear disconnect status when active
+        });
+      } catch (error) {
+        console.error('Error updating last activity:', error);
+      }
+    };
+
+    // Update immediately
+    updateLastActivity();
+
+    // Update every 15 seconds while in game
+    lastActivityUpdateRef.current = setInterval(updateLastActivity, 15000);
+
+    return () => {
+      if (lastActivityUpdateRef.current) {
+        clearInterval(lastActivityUpdateRef.current);
+        lastActivityUpdateRef.current = null;
+      }
+    };
+  }, [effectivePlayerId, db, roomId, gameState?.gameStatus]);
+
+  // Check for opponent disconnection
+  useEffect(() => {
+    if (!gameState || !effectivePlayerId || !opponentId || !db || gameState.gameStatus !== 'active') {
+      setOpponentDisconnected(false);
+      if (disconnectTimerRef.current) {
+        clearInterval(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      return;
+    }
+
+    const checkOpponentActivity = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', roomId);
+        const roomSnap = await getDoc(roomRef);
+        
+        if (!roomSnap.exists()) return;
+
+        const roomData = roomSnap.data();
+        const lastActivity = roomData.lastActivity || {};
+        const opponentLastActivity = lastActivity[opponentId];
+        const myLastActivity = lastActivity[effectivePlayerId];
+        const disconnectedAt = roomData.disconnectedAt || {};
+        const roomCreatedAt = roomData.createdAt;
+
+        // Don't check for disconnection if game just started (within first 45 seconds)
+        // This prevents false positives when players are still initializing
+        const now = Date.now();
+        const roomCreatedTime = roomCreatedAt?.toMillis ? roomCreatedAt.toMillis() : now;
+        const gameAge = now - roomCreatedTime;
+        const minGameAge = 3000; // 3 seconds - give players time to initialize
+
+        // Also check if we have our own lastActivity - if we don't, game just started
+        const myLastActivityTime = myLastActivity?.toMillis ? myLastActivity.toMillis() : null;
+        const hasMyActivity = myLastActivityTime !== null;
+
+        // If game is too new or we haven't updated our activity yet, don't check for disconnection
+        if (gameAge < minGameAge || !hasMyActivity) {
+          setOpponentDisconnected(false);
+          return;
+        }
+
+        // If opponent has no lastActivity or it's older than 30 seconds, consider them disconnected
+        const opponentLastActivityTime = opponentLastActivity?.toMillis ? opponentLastActivity.toMillis() : null;
+        const isDisconnected = !opponentLastActivityTime || (now - opponentLastActivityTime > 30000); // 30 seconds threshold
+
+        if (isDisconnected && !opponentDisconnected && !hasProcessedDisconnectWin.current) {
+          // Mark opponent as disconnected and set disconnectedAt timestamp if not already set
+          const opponentDisconnectedAt = disconnectedAt[opponentId];
+          if (!opponentDisconnectedAt) {
+            // First time detecting disconnection - set the timestamp
+            await updateDoc(roomRef, {
+              [`disconnectedAt.${opponentId}`]: serverTimestamp(),
+            });
+          }
+          
+          setOpponentDisconnected(true);
+          
+          // Calculate remaining time based on when they disconnected
+          const disconnectTime = opponentDisconnectedAt?.toMillis ? opponentDisconnectedAt.toMillis() : now;
+          const elapsed = Math.floor((now - disconnectTime) / 1000);
+          const remaining = Math.max(0, 180 - elapsed); // 3 minutes = 180 seconds
+          setDisconnectTimer(remaining);
+        } else if (!isDisconnected && opponentDisconnected) {
+          // Opponent reconnected - clear disconnectedAt
+          await updateDoc(roomRef, {
+            [`disconnectedAt.${opponentId}`]: null,
+          });
+          
+          setOpponentDisconnected(false);
+          setDisconnectTimer(180);
+          if (disconnectTimerRef.current) {
+            clearInterval(disconnectTimerRef.current);
+            disconnectTimerRef.current = null;
+          }
+        } else if (isDisconnected && opponentDisconnected) {
+          // Still disconnected - update timer based on when they disconnected
+          const opponentDisconnectedAt = disconnectedAt[opponentId];
+          if (opponentDisconnectedAt) {
+            const disconnectTime = opponentDisconnectedAt.toMillis ? opponentDisconnectedAt.toMillis() : now;
+            const elapsed = Math.floor((now - disconnectTime) / 1000);
+            const remaining = Math.max(0, 180 - elapsed);
+            setDisconnectTimer(remaining);
+            
+            // If time expired, trigger win
+            if (remaining <= 0) {
+              handleDisconnectWin();
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking opponent activity:', error);
+      }
+    };
+
+    // Check every 5 seconds
+    const checkInterval = setInterval(checkOpponentActivity, 5000);
+    checkOpponentActivity(); // Check immediately
+
+    return () => {
+      clearInterval(checkInterval);
+    };
+  }, [gameState, effectivePlayerId, opponentId, db, roomId, opponentDisconnected]);
+
+  // Auto-win when opponent disconnects and timer expires
+  const handleDisconnectWin = async () => {
+    if (!effectivePlayerId || !gameState || !db || hasProcessedDisconnectWin.current) return;
+
+    try {
+      hasProcessedDisconnectWin.current = true;
+      const roomRef = doc(db, 'rooms', roomId);
+      const roomDoc = await getDoc(roomRef);
+
+      if (!roomDoc.exists()) return;
+
+      const roomData = roomDoc.data();
+      const currentGameState = roomData.gameState;
+
+      // Give current player the win by setting their score to 16
+      const updatedPlayers = {
+        ...currentGameState.players,
+        [effectivePlayerId]: {
+          ...currentGameState.players[effectivePlayerId],
+          score: 16,
+        },
+      };
+
+      await updateDoc(roomRef, {
+        'gameState.gameStatus': 'finished',
+        'gameState.players': updatedPlayers,
+        'gameState.currentPlayerId': effectivePlayerId,
+        'gameState.forfeitedBy': opponentId, // Mark opponent as forfeited
+      });
+
+      setOpponentDisconnected(false);
+      setDisconnectTimer(180);
+    } catch (error) {
+      console.error('Error handling disconnect win:', error);
+      hasProcessedDisconnectWin.current = false;
+    }
+  };
+
+  // Timer countdown for opponent disconnection - updates based on actual disconnect time
+  useEffect(() => {
+    if (!opponentDisconnected || !gameState || gameState.gameStatus !== 'active') {
+      if (disconnectTimerRef.current) {
+        clearInterval(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Update timer based on actual disconnect time from Firestore
+    const updateTimer = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', roomId);
+        const roomSnap = await getDoc(roomRef);
+        if (!roomSnap.exists()) return;
+
+        const roomData = roomSnap.data();
+        const disconnectedAt = roomData.disconnectedAt || {};
+        const opponentDisconnectedAt = disconnectedAt[opponentId];
+
+        if (opponentDisconnectedAt) {
+          const now = Date.now();
+          const disconnectTime = opponentDisconnectedAt.toMillis ? opponentDisconnectedAt.toMillis() : now;
+          const elapsed = Math.floor((now - disconnectTime) / 1000);
+          const remaining = Math.max(0, 180 - elapsed);
+          
+          setDisconnectTimer(remaining);
+          
+          // If time expired, trigger win
+          if (remaining <= 0) {
+            handleDisconnectWin();
+          }
+        }
+      } catch (error) {
+        console.error('Error updating disconnect timer:', error);
+      }
+    };
+
+    // Update immediately
+    updateTimer();
+
+    // Update every second
+    disconnectTimerRef.current = setInterval(updateTimer, 1000);
+
+    return () => {
+      if (disconnectTimerRef.current) {
+        clearInterval(disconnectTimerRef.current);
+        disconnectTimerRef.current = null;
+      }
+    };
+  }, [opponentDisconnected, gameState?.gameStatus, effectivePlayerId, opponentId, db, roomId]);
+
   // Show loading while checking auth
   if (authLoading) {
     return (
@@ -601,6 +841,87 @@ export default function RoomPage() {
           </div>
         )}
           </AnimatePresence>
+
+      {/* Opponent Disconnected Popup - Mobile: Full Screen, Desktop: Side Panel */}
+      <AnimatePresence>
+        {opponentDisconnected && gameState?.gameStatus === 'active' && (
+          <>
+            {/* Mobile: Full Screen Popup */}
+            <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:hidden">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                transition={{ duration: 0.3 }}
+                className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-6 shadow-2xl border-2 border-yellow-500/50 max-w-sm w-full"
+              >
+                <div className="text-center mb-6">
+                  <h2 className="text-xl font-bold text-white mb-2">
+                    <span className="font-semibold text-yellow-400">
+                      {opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent'}
+                    </span> disconnected
+                  </h2>
+                </div>
+
+                {/* Timer */}
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-yellow-400 font-semibold text-sm">Waiting</span>
+                  </div>
+                  <div className="text-4xl font-bold text-white text-center">
+                    {Math.floor(disconnectTimer / 60)}:{(disconnectTimer % 60).toString().padStart(2, '0')}
+                  </div>
+                  <p className="text-yellow-200 text-xs text-center mt-2">
+                    {disconnectTimer <= 60 
+                      ? 'You will win automatically if they don\'t return'
+                      : 'Waiting for your opponent to reconnect...'}
+                  </p>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Desktop: Side Panel */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+              className="hidden sm:block absolute top-[220px] md:top-[240px] left-3 md:left-4 z-30 w-[280px] md:w-[300px]"
+            >
+              <div className="bg-gray-900/95 backdrop-blur-md rounded-xl md:rounded-2xl p-4 md:p-5 shadow-2xl border-2 border-yellow-500/50">
+                <div className="text-center mb-3 md:mb-4">
+                  <h3 className="text-sm md:text-base font-bold text-white mb-1">
+                    <span className="font-semibold text-yellow-400">
+                      {opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent'}
+                    </span> disconnected
+                  </h3>
+                </div>
+
+                {/* Timer */}
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-3 mb-3">
+                  <div className="flex items-center justify-center gap-2 mb-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                    </svg>
+                    <span className="text-yellow-400 font-semibold text-xs">Waiting</span>
+                  </div>
+                  <div className="text-2xl md:text-3xl font-bold text-white text-center">
+                    {Math.floor(disconnectTimer / 60)}:{(disconnectTimer % 60).toString().padStart(2, '0')}
+                  </div>
+                  <p className="text-yellow-200 text-[10px] text-center mt-2">
+                    {disconnectTimer <= 180 
+                      ? 'You will win automatically if they don\'t return'
+                      : 'Waiting for reconnect...'}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
         </div>
       );
     }

@@ -42,6 +42,9 @@ export default function Home() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [backgroundLoading, setBackgroundLoading] = useState<string | null>(null);
   const [showGameSelectionModal, setShowGameSelectionModal] = useState(false);
+  const [reconnectionGame, setReconnectionGame] = useState<{ roomId: string; opponentName: string; opponentId: string } | null>(null);
+  const [reconnectionTimer, setReconnectionTimer] = useState<number>(180); // 3 minutes in seconds
+  const reconnectionTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Available background themes
   const BACKGROUND_THEMES: BackgroundTheme[] = [
@@ -66,6 +69,229 @@ export default function Home() {
       setShowAuth(true);
     }
   }, [user, loading]);
+
+  // Check for active games on page load (reconnection feature)
+  useEffect(() => {
+    if (!user?.uid || !db || loading) return;
+
+    const checkForActiveGame = async () => {
+      try {
+        // Query rooms where user is a player
+        const roomsRef = collection(db, 'rooms');
+        const q = query(roomsRef, where('players', 'array-contains', user.uid));
+        const querySnapshot = await getDocs(q);
+
+        // Find active games
+        for (const roomDoc of querySnapshot.docs) {
+          const roomData = roomDoc.data();
+          const gameState = roomData.gameState;
+
+          // Strict checks: game must be active, have exactly 2 players, and user must be one of them
+          if (
+            gameState?.gameStatus === 'active' && 
+            gameState?.players?.[user.uid] &&
+            Object.keys(gameState.players || {}).length === 2 && // Must have exactly 2 players
+            !gameState.forfeitedBy && // Game must not be forfeited
+            gameState.deck && gameState.deck.length >= 0 // Game must have started (deck exists)
+          ) {
+            // Get opponent ID
+            const allPlayerIds = Object.keys(gameState.players || {});
+            const opponentId = allPlayerIds.find((id) => id !== user.uid);
+
+            if (opponentId) {
+              // Double-check the game is still active by fetching fresh data
+              try {
+                const freshRoomDoc = await getDoc(doc(db, 'rooms', roomDoc.id));
+                if (!freshRoomDoc.exists()) continue;
+                
+                const freshRoomData = freshRoomDoc.data();
+                const freshGameState = freshRoomData.gameState;
+                
+                // Verify game is still active with fresh data
+                if (
+                  freshGameState?.gameStatus === 'active' &&
+                  freshGameState?.players?.[user.uid] &&
+                  Object.keys(freshGameState.players || {}).length === 2 &&
+                  !freshGameState.forfeitedBy
+                ) {
+                  // Check if user was disconnected and calculate remaining time
+                  const disconnectedAt = freshRoomData.disconnectedAt || {};
+                  const userDisconnectedAt = disconnectedAt[user.uid];
+                  
+                  let remainingTime = 180; // Default 3 minutes
+                  
+                  if (userDisconnectedAt) {
+                    // User was disconnected - calculate remaining time
+                    const now = Date.now();
+                    const disconnectTime = userDisconnectedAt.toMillis ? userDisconnectedAt.toMillis() : now;
+                    const elapsed = Math.floor((now - disconnectTime) / 1000);
+                    remainingTime = Math.max(0, 180 - elapsed);
+                    
+                    // If time already expired, don't show reconnection modal
+                    if (remainingTime <= 0) {
+                      continue; // Skip this game, time expired
+                    }
+                  }
+                  
+                  // Fetch opponent's profile to get their name
+                  const opponentDoc = await getDoc(doc(db, 'users', opponentId));
+                  const opponentProfile = opponentDoc.exists() ? (opponentDoc.data() as UserProfile) : null;
+                  const opponentName = opponentProfile?.displayName || opponentProfile?.email?.split('@')[0] || 'Opponent';
+
+                  setReconnectionGame({
+                    roomId: roomDoc.id,
+                    opponentName,
+                    opponentId,
+                  });
+                  setReconnectionTimer(remainingTime); // Set based on when they disconnected
+                  break; // Only show one reconnection modal
+                }
+              } catch (error) {
+                console.error('Error fetching opponent profile or verifying game:', error);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error checking for active games:', error);
+      }
+    };
+
+    checkForActiveGame();
+  }, [user?.uid, db, loading]);
+
+  // Auto-forfeit when timer expires
+  const handleAutoForfeit = async () => {
+    if (!reconnectionGame || !user?.uid || !db) return;
+
+    try {
+      const roomRef = doc(db, 'rooms', reconnectionGame.roomId);
+      const roomDoc = await getDoc(roomRef);
+
+      if (!roomDoc.exists()) {
+        setReconnectionGame(null);
+        return;
+      }
+
+      const roomData = roomDoc.data();
+      const currentGameState = roomData.gameState;
+      const allPlayerIds = Object.keys(currentGameState.players);
+      const opponentId = allPlayerIds.find((id) => id !== user.uid);
+
+      if (!opponentId) {
+        setReconnectionGame(null);
+        return;
+      }
+
+      // Give the opponent the win by setting their score to 16
+      const updatedPlayers = {
+        ...currentGameState.players,
+        [opponentId]: {
+          ...currentGameState.players[opponentId],
+          score: 16,
+        },
+      };
+
+      await updateDoc(roomRef, {
+        'gameState.gameStatus': 'finished',
+        'gameState.players': updatedPlayers,
+        'gameState.currentPlayerId': opponentId,
+        'gameState.forfeitedBy': user.uid, // Mark who forfeited
+      });
+
+      // Clear reconnection state
+      setReconnectionGame(null);
+      setReconnectionTimer(180);
+    } catch (error) {
+      console.error('Error auto-forfeiting game:', error);
+      setReconnectionGame(null);
+    }
+  };
+
+  // Handle join back
+  const handleJoinBack = () => {
+    if (!reconnectionGame) return;
+
+    // Store coins before navigating (for animation on return)
+    if (userProfile?.coins !== undefined) {
+      sessionStorage.setItem('coins-before-navigation', userProfile.coins.toString());
+    }
+
+    // Clear reconnection state
+    setReconnectionGame(null);
+    setReconnectionTimer(300);
+
+    // Navigate to room
+    router.push(`/room/${reconnectionGame.roomId}`);
+  };
+
+  // Timer countdown for reconnection - updates based on actual disconnect time
+  useEffect(() => {
+    if (!reconnectionGame || !user?.uid || !db) {
+      // Clear timer if no reconnection game
+      if (reconnectionTimerRef.current) {
+        clearInterval(reconnectionTimerRef.current);
+        reconnectionTimerRef.current = null;
+      }
+      return;
+    }
+
+    // Update timer based on actual disconnect time from Firestore
+    const updateTimer = async () => {
+      try {
+        const roomRef = doc(db, 'rooms', reconnectionGame.roomId);
+        const roomSnap = await getDoc(roomRef);
+        if (!roomSnap.exists()) {
+          setReconnectionGame(null);
+          return;
+        }
+
+        const roomData = roomSnap.data();
+        const gameState = roomData.gameState;
+        
+        // Check if game is still active
+        if (gameState?.gameStatus !== 'active' || gameState?.forfeitedBy) {
+          setReconnectionGame(null);
+          return;
+        }
+
+        const disconnectedAt = roomData.disconnectedAt || {};
+        const userDisconnectedAt = disconnectedAt[user.uid];
+
+        if (userDisconnectedAt) {
+          const now = Date.now();
+          const disconnectTime = userDisconnectedAt.toMillis ? userDisconnectedAt.toMillis() : now;
+          const elapsed = Math.floor((now - disconnectTime) / 1000);
+          const remaining = Math.max(0, 180 - elapsed);
+          
+          setReconnectionTimer(remaining);
+          
+          // If time expired, trigger auto-forfeit
+          if (remaining <= 0) {
+            handleAutoForfeit();
+          }
+        } else {
+          // No disconnect timestamp - user is active, clear reconnection
+          setReconnectionGame(null);
+        }
+      } catch (error) {
+        console.error('Error updating reconnection timer:', error);
+      }
+    };
+
+    // Update immediately
+    updateTimer();
+
+    // Update every second
+    reconnectionTimerRef.current = setInterval(updateTimer, 1000);
+
+    return () => {
+      if (reconnectionTimerRef.current) {
+        clearInterval(reconnectionTimerRef.current);
+        reconnectionTimerRef.current = null;
+      }
+    };
+  }, [reconnectionGame, user?.uid, db]);
 
   // Check for coin changes when returning to home page (e.g., after game ends)
   // This detects payout changes and triggers animations
@@ -2051,6 +2277,69 @@ export default function Home() {
                   />
                   <p className="text-gray-500 text-xs mt-2">Email cannot be changed</p>
                 </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reconnection Modal */}
+      <AnimatePresence>
+        {reconnectionGame && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ duration: 0.3 }}
+              className="bg-gray-900/95 backdrop-blur-md rounded-3xl p-8 shadow-2xl border border-gray-700/50 max-w-md w-full mx-4"
+            >
+              <div className="text-center mb-6">
+                <div className="text-5xl mb-4">🎮</div>
+                <h2 className="text-2xl font-bold text-white mb-2">Reconnect to Game</h2>
+                <p className="text-gray-300 text-sm">
+                  You were in a game against <span className="font-semibold text-yellow-400">{reconnectionGame.opponentName}</span>
+                </p>
+              </div>
+
+              {/* Timer */}
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-yellow-400 font-semibold text-sm">Time Remaining</span>
+                </div>
+                <div className="text-3xl font-bold text-white text-center">
+                  {Math.floor(reconnectionTimer / 60)}:{(reconnectionTimer % 60).toString().padStart(2, '0')}
+                </div>
+                <p className="text-yellow-200 text-xs text-center mt-2">
+                  {reconnectionTimer <= 60 
+                    ? 'Game will be forfeited automatically if you don\'t rejoin'
+                    : 'Rejoin before time expires to continue playing'}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleJoinBack}
+                  className="w-full bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-3 px-6 rounded-xl transition-colors duration-200 flex items-center justify-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                  Join Back
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAutoForfeit}
+                  className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-xl transition-colors duration-200"
+                >
+                  Forfeit Game
+                </motion.button>
               </div>
             </motion.div>
           </div>
