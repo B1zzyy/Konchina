@@ -432,6 +432,7 @@ export function useMatchmaking() {
             lastRoundScore: null,
             lastCapturePlayerId: null,
             currentHand: 1, // Start at hand 1
+            firstPlayerIdThisRound: matchedPlayerId, // Track who goes first in the first round
           };
 
           transaction.set(roomRef, {

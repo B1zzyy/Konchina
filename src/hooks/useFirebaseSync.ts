@@ -84,6 +84,9 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
               const deckCopy = [...existingGameState.deck];
               const hand = deckCopy.splice(0, 4);
               
+              // Determine who goes first (the player who created the room)
+              const firstPlayerId = existingGameState.currentPlayerId;
+              
               const updatedGameState: GameState = {
                 ...existingGameState,
                 deck: deckCopy,
@@ -98,6 +101,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
                   },
                 },
                 gameStatus: 'active',
+                firstPlayerIdThisRound: firstPlayerId, // Track who goes first in the first round
               };
               
               transaction.update(roomRef, {
@@ -457,9 +461,20 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
           const { tableCards: newRoundTableCards, remainingDeck: deckAfterTable } = dealTableCards(freshDeck);
           
           // Update players with new hands and reset turn to first player
+          // Alternate who goes first each round
           const allPlayerIds = Object.keys(finalPlayers);
-          const firstPlayerId = allPlayerIds[0];
-          const secondPlayerId = allPlayerIds[1] || firstPlayerId;
+          const previousFirstPlayer = gameState.firstPlayerIdThisRound;
+          let firstPlayerId: string;
+          
+          if (previousFirstPlayer) {
+            // Alternate: use the other player
+            firstPlayerId = allPlayerIds.find(id => id !== previousFirstPlayer) || allPlayerIds[0];
+          } else {
+            // First round: use first player in array
+            firstPlayerId = allPlayerIds[0];
+          }
+          
+          const secondPlayerId = allPlayerIds.find(id => id !== firstPlayerId) || allPlayerIds[1] || firstPlayerId;
           
           finalPlayers = {
             [firstPlayerId]: {
@@ -482,6 +497,7 @@ export function useFirebaseSync(roomId: string | null, currentPlayerId: string |
           newTableCards = newRoundTableCards; // Update the table cards variable
           newCurrentPlayerId = firstPlayerId; // Reset to first player
           lastCapturePlayerId = null; // Reset last capturer for new round
+          gameState.firstPlayerIdThisRound = firstPlayerId; // Track who goes first this round
           
           console.log('New round started:', {
             tableCards: newRoundTableCards.map(c => `${c.value}${c.suit}`).join(', '),

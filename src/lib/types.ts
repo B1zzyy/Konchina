@@ -51,6 +51,7 @@ export interface GameState {
   forfeitedBy?: string | null; // Track which player forfeited (their player ID)
   currentHand?: number; // Track which hand number we're on (1-6)
   consecutiveTimeouts?: { [playerId: string]: number }; // Track consecutive timeouts per player for AFK detection
+  firstPlayerIdThisRound?: string | null; // Track who went first in the current round (for alternating)
 }
 
 export interface Move {
